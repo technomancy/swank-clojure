@@ -465,7 +465,9 @@ that symbols accessible in the current namespace go first."
 (defslimefn buffer-first-change [file-name] nil)
 
 (defn locals-for-emacs [m]
-  (map #(list :name (name (first %)) :id 0 :value (str (second %))) m))
+  (sort-by second
+           (map #(list :name (name (first %)) :id 0
+                       :value (str (second %))) m)))
 
 (defslimefn frame-catch-tags-for-emacs [n] nil)
 (defslimefn frame-locals-for-emacs [n]
