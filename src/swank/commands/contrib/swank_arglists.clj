@@ -34,7 +34,7 @@
                                 {})]
     (if (and raw-specs
              (seq? raw-specs))
-      (let [expr (some #(and (seq? %) (some #{:cursor-marker} %) %)
+      (let [expr (some #(and (seq? %) (some #{:swank.rpc/cursor-marker} %) %)
                        (tree-seq seq? seq raw-specs))]
         (if (and (seq? expr) (not (= (first expr) "")))
           ((slime-fn 'operator-arglist)

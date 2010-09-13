@@ -1,5 +1,5 @@
 (ns swank.core
-  (:use (swank util commands)
+  (:use (swank util commands rpc)
         (swank.util hooks)
         (swank.util.concurrent thread)
         (swank.core connection hooks threadmap))
@@ -232,7 +232,7 @@ values."
   (try
    (binding [*current-package* buffer-package
              *pending-continuations* (cons id *pending-continuations*)]
-     (if-let [f (slime-fn (first form))]
+     (if-let [f (slime-fqfn (first form))]
        (let [form (cons f (rest form))
              result (doall-seq (eval-in-emacs-package form))]
          (run-hook *pre-reply-hook*)
@@ -334,46 +334,62 @@ values."
      (with-connection conn
        (continuously (mb/send control (read-from-connection conn))))))
 
+(register-dispatch
+ :emacs-rex
+ (fn [conn ev]
+   (let [[action & args] ev
+	 [form-string package thread id] args
+	 thread (thread-for-evaluation thread conn)]
+     (mb/send thread `(eval-for-emacs ~form-string ~package ~id)))))
+
+(register-dispatch
+ :return
+ (fn [conn ev]
+   (let [[action & args] ev
+	 [thread & ret] args]
+     (binding [*print-level* nil, *print-length* nil]
+       (write-to-connection conn `(:return ~@ret))))))
+
+(doall (map
+	#(register-dispatch
+	  %
+	  (fn [conn ev]
+	    (binding [*print-level* nil, *print-length* nil]
+	      (write-to-connection conn ev))))
+	[:presentation-start :presentation-end
+	 :new-package :new-features :ed :percent-apply
+	 :indentation-update
+	 :eval-no-wait :background-message :inspect]))
+
+(register-dispatch
+ :write-string
+ (fn [conn ev]
+   (write-to-connection conn ev)))
+
+(doall (map
+	#(register-dispatch
+	  %
+	  (fn [conn ev]
+	    (let [[action & args] ev
+		  [thread & args] args]
+	      (write-to-connection conn `(~action ~(thread-map-id thread) ~@args)))))
+	[:debug :debug-condition :debug-activate :debug-return]))
+
+(register-dispatch
+ :emacs-interrupt
+ (fn [conn ev]
+   (let [[action & args] ev
+	 [thread & args] args]
+     (dosync
+      (cond
+       (and (true? thread) (seq @*active-threads*))
+       (.stop #^Thread (first @*active-threads*))
+       (= thread :repl-thread) (.stop #^Thread @(conn :repl-thread)))))))
+
 (defn dispatch-event
-   "Dispatches/executes an event in the control thread's mailbox queue."
-   ([ev conn]
-      (let [[action & args] ev]
-        (cond
-         (= action :emacs-rex)
-         (let [[form-string package thread id] args
-               thread (thread-for-evaluation thread conn)]
-           (mb/send thread `(eval-for-emacs ~form-string ~package ~id)))
-
-         (= action :return)
-         (let [[thread & ret] args]
-           (binding [*print-level* nil, *print-length* nil]
-             (write-to-connection conn `(:return ~@ret))))
-
-         (one-of? action
-                  :presentation-start :presentation-end
-                  :new-package :new-features :ed :percent-apply
-                  :indentation-update
-                  :eval-no-wait :background-message :inspect)
-         (binding [*print-level* nil, *print-length* nil]
-           (write-to-connection conn ev))
-
-         (= action :write-string)
-         (write-to-connection conn ev)
-
-         (one-of? action
-                  :debug :debug-condition :debug-activate :debug-return)
-         (let [[thread & args] args]
-           (write-to-connection conn `(~action ~(thread-map-id thread) ~@args)))
-
-         (= action :emacs-interrupt)
-         (let [[thread & args] args]
-           (dosync
-            (cond
-             (and (true? thread) (seq @*active-threads*))
-             (.stop #^Thread (first @*active-threads*))
-              (= thread :repl-thread) (.stop #^Thread @(conn :repl-thread)))))
-         :else
-         nil))))
+  "Dispatches/executes an event in the control thread's mailbox queue."
+  ([ev conn]
+     (dispatch-message conn ev)))
 
 ;; Main loop definitions
 (defn control-loop

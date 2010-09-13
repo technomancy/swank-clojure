@@ -31,20 +31,6 @@
    form (typically a sexp). This method will block until a message is
    completely transfered.
 
-   Note: This function will do some amount of Common Lisp -> clojure
-   conversions. This is due to the fact that several slime functions
-   like to treat everything it's talking to as a common lisp
-   implementation.
-     - If an :emacs-rex form is received and the first form contains a
-       common lisp package designation, this will convert it to use a
-       clojure designation.
-     - t will be converted to true
-
    See also `write-swank-message'."
   ([#^java.io.Reader reader]
-     (let [len  (Integer/parseInt (read-chars reader 6 read-fail-exception) 16)
-           msg  (read-chars reader len read-fail-exception)
-           form (read-string (fix-cursor-marker (fix-namespace msg)))]
-       (if (seq? form)
-         (deep-replace {'t true} form)
-         form))))
+     (swank.rpc/decode-message reader)))
