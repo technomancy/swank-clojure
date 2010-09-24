@@ -6,14 +6,15 @@
 (defn read-chars
   ([rdr n] (read-chars rdr n false))
   ([#^Reader rdr n throw-exception]
-     (let [sb (StringBuilder.)]
-       (dotimes [i n]
-         (let [c (.read rdr)]
-           (if (not= c -1)
-             (.append sb (char c))
-             (when throw-exception
-               (throw throw-exception)))))
-       (str sb))))
+     (let [cbuf (make-array Character/TYPE n)]
+       (loop [i 0]
+	 (let [size (.read rdr cbuf i (- n i))]
+	   (cond
+	    (neg? size) (if throw-exception
+			  (throw throw-exception)
+			  (String. cbuf 0 i))
+	    (= (+ i size) n) (String. cbuf)
+	    :else (recur (+ i size))))))))
 
 (defn call-on-flush-stream
   "Creates a stream that will call a given function when flushed."
