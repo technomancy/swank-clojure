@@ -122,12 +122,12 @@ when using `swank-clojure-project'."
 (defcustom swank-clojure-deps
   (list (concat "http://repo.technomancy.us/"
                 "swank-clojure-1.1.0.jar")
-        (concat "http://build.clojure.org/snapshots/org/"
-                "clojure/clojure/1.1.0-master-SNAPSHOT/"
-                "clojure-1.1.0-master-20091202.150145-1.jar")
-        (concat "http://build.clojure.org/snapshots/org/"
-                "clojure/clojure-contrib/1.1.0-master-SNAPSHOT/"
-                "clojure-contrib-1.1.0-master-20091212.205045-1.jar"))
+        (concat "http://build.clojure.org/releases/org/"
+                "clojure/clojure/1.1.0/"
+                "clojure-1.1.0.jar")
+        (concat "http://build.clojure.org/releases/org/"
+                "clojure/clojure-contrib/1.1.0/"
+                "clojure-contrib-1.1.0.jar"))
   "A list of urls of jars required to run swank-clojure. If they
 don't exist in `swank-clojure-jar-home' and
 `swank-clojure-classpath' is not set, the user will be prompted
