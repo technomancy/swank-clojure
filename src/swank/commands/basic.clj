@@ -63,7 +63,14 @@
 
 (defslimefn interactive-eval [string]
   (with-emacs-package
-    (pr-str (first (eval-region string)))))
+    (pr-str
+     (let [value (first (eval-region string))]
+       ;; If the result is a seq, consume it here instead of getting evaluated
+       ;; from pr-str to allow side-effects to go to the repl.
+       (if (instance? clojure.lang.LazySeq value)
+       	 (doall value)
+       	 value)
+       ))))
 
 (defslimefn listener-eval [form]
   (with-emacs-package
