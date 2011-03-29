@@ -5,7 +5,8 @@
         (swank.util string clojure)
         (swank.clj-contrib pprint macroexpand))
   (:require (swank.util [sys :as sys])
-            (swank.commands [xref :as xref]))
+            (swank.commands [xref :as xref])
+            [swank.core.debugger-backends :as dbe])
   (:import (java.io StringReader File)
            (java.util.zip ZipFile)
            (clojure.lang LineNumberingPushbackReader)))
@@ -44,7 +45,7 @@
            (if (= form rdr)
              [value last-form]
              (recur (read rdr false rdr)
-                    (eval (with-env-locals form))
+                    (dbe/swank-eval form)
                     form)))))))
 
 (defn- compile-region
@@ -456,7 +457,9 @@ that symbols accessible in the current namespace go first."
                        (str ns-path File/separator (.getFileName frame))
                        (.getFileName frame))))
         path     (slime-find-file filename)]
-    (location-in-file path line)))
+    (if path
+      (location-in-file path line)
+      (list :error (format "%s - source not found." filename)))))
 
 (defn- namespace-to-filename [ns]
   (str (-> (str ns)
@@ -533,7 +536,7 @@ that symbols accessible in the current namespace go first."
 
 
 (defslimefn backtrace [start end]
-  (build-backtrace start end))
+  (dbe/build-backtrace start end))
 
 (defslimefn buffer-first-change [file-name] nil)
 
@@ -554,19 +557,17 @@ that symbols accessible in the current namespace go first."
 (defslimefn debugger-info-for-emacs [start end]
   (build-debugger-info-for-emacs start end))
 
-(defslimefn eval-string-in-frame [expr n]
-  (if (and (zero? n) *current-env*)
-    (with-bindings *current-env*
-      (eval expr))))
+(defslimefn eval-string-in-frame [st n]
+  (dbe/eval-string-in-frame st n))
 
 (defslimefn frame-source-location [n]
   (source-location-for-frame
-   (nth (.getStackTrace *current-exception*) n)))
+   (dbe/get-stack-trace n)))
 
 ;; Older versions of slime use this instead of the above.
 (defslimefn frame-source-location-for-emacs [n]
   (source-location-for-frame
-   (nth (.getStackTrace *current-exception*) n)))
+      (dbe/get-stack-trace n)))
 
 (defslimefn create-repl [target] '("user" "user"))
 
@@ -606,3 +607,6 @@ corresponding attribute values per thread."
 
 (defslimefn quit-thread-browser []
   (reset! thread-list []))
+
+(defslimefn eval-last-frame [st]
+  (dbe/eval-last-frame st))
