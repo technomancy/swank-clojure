@@ -48,9 +48,9 @@
   ([#^Class class]
      (concat (map member-name (static-methods class))
 	     (map member-name (static-fields class)))))
-     
 
-(defn potiential-classes-on-path
+
+(defn potential-classes-on-path
   "Returns a list of Java class and Clojure package names found on the current
   classpath. To minimize noise, list is nil unless a '.' is present in the search
   string, and nested classes are only shown if a '$' is present."
@@ -93,7 +93,7 @@
   (try
    (let [[sym-ns sym-name] (symbol-name-parts symbol-string)
 		 potential         (concat (potential-completions (when sym-ns (symbol sym-ns)) (ns-name (maybe-ns package)))
-								   (potiential-classes-on-path symbol-string))
+								   (potential-classes-on-path symbol-string))
          matches           (seq (sort (filter #(.startsWith #^String % symbol-string) potential)))]
      (list matches
            (if matches

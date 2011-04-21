@@ -1,99 +1,116 @@
 # Swank Clojure
 
-[Swank-clojure](http://github.com/technomancy/swank-clojure) is an
-adapter that lets you use SLIME (the Superior Lisp Interaction Mode
-for Emacs) with Clojure. It's designed to work with GNU Emacs 23 and
-higher. It may work with forks like XEmacs/Aquamacs or earlier
-versions of Emacs, but those are not as well supported.
+[Swank Clojure](http://github.com/technomancy/swank-clojure) is a
+server that allows [SLIME](http://common-lisp.net/project/slime/) (the
+Superior Lisp Interaction Mode for Emacs) to connect to Clojure
+projects. To use it you must launch a swank server, then connect to it
+from within Emacs.
 
 ## Usage
 
-Depending on what you're using it for, Swank Clojure can be invoked in
-a few different ways:
-        
-1. Standalone Session: If you just hit M-x slime, swank-clojure will
-   download the jars for Clojure, contrib, and swank-clojure,
-   launch an instance, and connect to it. If you just want to try out
-   Clojure, this is all you need. Just get Swank Clojure through
-   [ELPA](http://tromey.com/elpa) and stop reading here. =)
+If you just want a standalone swank server with no third-party
+libraries, you can just install swank-clojure using Leiningen.
 
-2. Custom classpath: If you want to hack on Clojure or Contrib or want
-   to provide your own copy of the jars for some other reason, set
-   swank-clojure-classpath to a list of paths to the jars you want to
-   use and then hit M-x slime.
+    $ lein plugin install swank-clojure 1.3.0
+    $ ~/.lein/bin/swank-clojure
 
-3. Project: Put your project's dependencies in the lib/ directory,
-   (either manually or using
-   [Leiningen](http://github.com/technomancy/leiningen) or Maven) then
-   launch M-x swank-clojure-project. Note that you must have
-   swank-clojure.jar in the lib/ directory, it will not automatically
-   add itself to the classpath as it did in past versions that had to
-   run from a checkout.
+    M-x slime-connect
 
-4. Standalone Server: Users of Leiningen or clojure-maven-plugin can
-   [launch a server from a
-   shell](http://wiki.github.com/technomancy/leiningen/emacs-integration)
-   and connect to it from within Emacs using M-x slime-connect.
+If you put ~/.lein/bin on your $PATH it's even more convenient.
 
-Because the JVM classpath can't be modified at runtime, you can't
-start a session with plain M-x slime and then decide to work on your
-project; you'll need to start a new slime session with M-x
-swank-clojure-project.
+You can also start a swank server from inside your project:
 
-## Installation
+    $ lein swank # you can specify PORT and HOST optionally
 
-Install [from ELPA](http://tromey.com/elpa) using package.el[1].
+Note that the lein-swank plugin now comes with Swank Clojure; it does
+not need to be specified as a separate dependency any more.
+
+If you're using Maven, add this to your pom.xml under the
+\<dependencies\> section:
+
+    <dependency>
+      <groupId>swank-clojure</groupId>
+      <artifactId>swank-clojure</artifactId>
+      <version>1.2.1</version>
+    </dependency>
+
+Then you can launch a swank server like so:
+
+    $ mvn -o clojure:swank
+
+Note that due to a bug in clojure-maven-plugin, you currently cannot
+include it as a test-scoped dependency; it must be compile-scoped. You
+also cannot change the port from Maven; it's hard-coded to 4005.
+
+Put this in your Emacs configuration to get syntax highlighting in the
+slime repl:
+
+    (add-hook 'slime-repl-mode-hook 'clojure-mode-font-lock-setup)
+
+## Connecting with SLIME
+
+Install the "slime-repl" package using package.el. If you are using
+Emacs 23, it's best to get [the latest version of package.el from
+Emacs
+trunk](http://bit.ly/pkg-el23). Then
+add Marmalade as an archive source:
+
+    (add-to-list 'package-archives
+                 '("marmalade" . "http://marmalade-repo.org/packages/") t)
+
+Then you can do <kbd>M-x package-list-packages</kbd>. Go down to
+slime-repl and mark it with <kbd>i</kbd>. Execute the installation by
+pressing <kbd>x</kbd>.
 
 When you perform the installation, you will see warnings related to
-the byte-compilation of the packages. This is normal; the packages
-will work just fine even if there are problems compiling it upon
+the byte-compilation of the packages. This is **normal**; the packages
+will work just fine even if there are problems byte-compiling it upon
 installation.
 
-If you're only going to use #4 above, you'll only need the
-"slime-repl" package. Otherwise get the "swank-clojure" package.
+Then you should be able to connect to the swank server you launched:
 
-While it's possible to install swank-clojure manually, it's not
-recommended. ELPA will be included in the next version of Emacs and
-has been a standard piece of the Emacs ecosystem for a while
-now. See the "Installing from Source" section below if you wish to
-hack on a development version that hasn't been released yet.
+    M-x slime-connect
 
-Be sure you don't have old versions of SLIME either manually installed
-or installed using a system-wide package manager like apt-get. If you
-do have any manual configuration of SLIME, be sure to place it after
-package.el is initialized.
+It will prompt you for your host (usually localhost) and port. It may
+also warn you that your SLIME version doesn't match your Swank
+version; this should be OK.
 
-## Project Layout
+Having old versions of SLIME either manually installed or installed
+using a system-wide package manager like apt-get may cause issues.
 
-If you intend to use M-x swank-clojure-project, it will prompt for a
-project dir and set up the classpath for that structure based on some
-existing Clojure conventions:
+## SLIME Commands
 
-* src/, classes/, test/, and resources/ - added to the classpath
-* lib/ - all .jars in here are added to the classpath
-* src/main/clojure, src/test/, target/classes, 
-  target/dependency - added if pom.xml exists (maven-style)
-  All jars in target/dependency will be added as well.
+Commonly-used SLIME commands:
 
-Your project should include *all* its dependent jars (including
-Clojure and Swank-Clojure) in either lib/ or target/dependency. If it
-depends on more than just Clojure, Contrib, and Swank, it's
-recommended that you use a dependency manager such as Leiningen to
-manage these.
+* **C-c TAB**: Autocomplete symbol at point
+* **C-x C-e**: Eval the form under the point
+* **C-c C-k**: Compile the current buffer
+* **C-c C-l**: Load current buffer and force dependent namespaces to reload
+* **M-.**: Jump to the definition of a var
+* **C-c S-i**: Inspect a value
+* **C-c C-m**: Macroexpand the call under the point
+* **C-c C-d C-d**: Look up documentation for a var
+* **C-c C-z**: Switch from a Clojure buffer to the repl buffer
+* **C-c M-p**: Switch the repl namespace to match the current buffer
+* **C-c C-c**: Interrupt the current function call in the repl
+* **C-c C-w c**: List all callers of a given function
 
-If you have a running session and you add jars to lib/, you need to
-start a new session. Invoke M-x swank-clojure-project to get a session
-with the new classpath in place. M-x slime-restart-inferior-lisp will
-restart the subprocess, but it does not recalculate the classpath.
+Pressing "v" on a stack trace a debug buffer will jump to the file and
+line referenced by that frame if possible.
+
+Note that SLIME was designed to work with Common Lisp, which has a
+distinction between interpreted code and compiled code. Clojure has no
+such distinction, so the load-file functionality is overloaded to add
+<code>:reload-all</code> behaviour.
 
 ## Embedding
 
-You can embed swank in your project, start the server from within your
-own code, and connect via Emacs to that instance:
+You can embed Swank Clojure in your project, start the server from
+within your own code, and connect via Emacs to that instance:
 
     (ns my-app
-      (:use [swank.swank :as swank]))
-    (swank/start-repl) ;; optionally takes a port argument
+      (:require [swank.swank]))
+    (swank.swank/start-repl) ;; optionally takes a port argument
 
 Then use M-x slime-connect to connect from within Emacs.
 
@@ -101,37 +118,18 @@ You can also start the server directly from the "java" command-line
 launcher if you AOT-compile it and specify "swank.swank" as your main
 class.
 
-## Commands
+## Debug Repl
 
-Commonly-used SLIME commands:
+For now, see [Hugo Duncan's
+blog](http://hugoduncan.org/post/2010/swank_clojure_gets_a_break_with_the_local_environment.xhtml)
+for an explanation of this excellent feature. Further documentation to come.
 
-* **M-TAB**: Autocomplete symbol at point
-* **C-x C-e**: Eval the form under the point
-* **C-c C-k**: Compile the current buffer
-* **M-.**: Jump to the definition of a var
-* **C-c S-i**: Inspect a value
-* **C-c C-m**: Macroexpand the call under the point
-* **C-c C-d C-d**: Look up documentation for a var
-* **C-c C-z**: Switch from a Clojure buffer to the repl buffer
-* **C-c M-p**: Switch the repl namespace to match the current buffer
+## swank-clojure.el
 
-Pressing "v" on a stack trace a debug buffer will jump to the file and
-line referenced by that frame if possible.
-
-Note that Slime was designed to work with Common Lisp, which has a
-distinction between interpreted code and compiled code. Clojure has no
-such distinction, but many of the Slime commands retain parallel
-load/compile commands that have the same effect in the context of
-Clojure.
-
-## Keeping Common Lisp
-
-If you want to use SLIME with Common Lisp or another Lisp
-implementation, add this to your Emacs config:
-
-    (add-to-list 'slime-lisp-implementations '(sbcl ("sbcl")))
-
-Then launch Slime with M-- M-x slime $LISP instead of just M-x slime.
+Previous versions of Swank Clojure bundled an Elisp library called
+swank-clojure.el that provided ways to launch your swank server from
+within your Emacs process. It's much more reliable to launch the
+server from your build tool, so this has been removed.
 
 ## Community
 
@@ -140,42 +138,16 @@ clojure channel on Freenode are the best places to bring up
 questions/issues.
 
 Contributions are preferred as either Github pull requests or using
-"git format-patch" as is requested [for contributing to Clojure
-itself](http://clojure.org/patches). Please use standard indentation
-with no tabs, trailing whitespace, or lines longer than 80 columns. If
-you've got some time on your hands, reading this [style
+"git format-patch". Please use standard indentation with no tabs,
+trailing whitespace, or lines longer than 80 columns. See [this post
+on submitting good patches](http://technomancy.us/135) for some
+tips. If you've got some time on your hands, reading this [style
 guide](http://mumble.net/~campbell/scheme/style.txt) wouldn't hurt
 either.
 
-## Installing from Source
-
-Swank-clojure is really two pieces: a server written in Clojure and a
-launcher written in Elisp. The elisp parts are installed with:
-
-    $ git clone git://github.com/technomancy/slime.git
-    $ git clone git://github.com/technomancy/clojure-mode.git
-
-Open slime/slime.el, slime/contrib/slime-repl.el,
-clojure-mode/clojure-mode.el, and swank-clojure.el and hit
-M-x package-install-from-buffer in each buffer in order. You will get
-compiler warnings, but they should not be fatal. Restart Emacs, and
-you should be able to use M-x slime.
-
-The Clojure-side server is managed with
-[Leiningen](http://github.com/technomancy/leiningen). Use the "lein
-install" task to place it in your local repository.
-
-Note that using Slime from CVS trunk is not recommended; changes have
-been introduced which are incompatible with the current implementation
-of the Clojure server. Using the versions in git from above will
-ensure that you have a compatible version.
-
 ## License
 
-Copyright (C) 2008-2009 Jeffrey Chu, Phil Hagelberg
+Copyright (C) 2008-2011 Jeffrey Chu, Phil Hagelberg, Hugo Duncan, and
+contributors
 
-This file is licensed under the terms of the GNU General Public
-License as distributed with Emacs (press C-h C-c to view it).
-
-[1] - [ELPA](http://tromey.com/elpa/install.html) is the Emacs Lisp
-  Package Archive. It brings a real package manager to Emacs.
+Licensed under the EPL. (See the file COPYING.)

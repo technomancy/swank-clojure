@@ -5,12 +5,12 @@
 
 ;; Read forms
 (def #^{:private true}
-     *namespace-re* #"(^\(:emacs-rex \([a-zA-Z][a-zA-Z0-9]+):")
+     namespace-re #"(^\(:emacs-rex \([a-zA-Z][a-zA-Z0-9]+):")
 
 (defn- fix-namespace
   "Changes the namespace of a function call from pkg:fn to ns/fn. If
    no pkg exists, then nothing is done."
-  ([text] (.replaceAll (re-matcher *namespace-re* text) "$1/")))
+  ([text] (.replaceAll (re-matcher namespace-re text) "$1/")))
 
 (defn write-swank-message
   "Given a `writer' (java.io.Writer) and a `message' (typically an
@@ -40,7 +40,11 @@
   ([#^java.io.Reader reader]
      (let [len  (Integer/parseInt (read-chars reader 6 read-fail-exception) 16)
            msg  (read-chars reader len read-fail-exception)
-           form (read-string (fix-namespace msg))]
+           form (try
+                  (read-string (fix-namespace msg))
+                  (catch Exception ex
+                    (.println System/err (format "unreadable message: %s" msg))
+                    (throw ex)))]
        (if (seq? form)
          (deep-replace {'t true} form)
          form))))

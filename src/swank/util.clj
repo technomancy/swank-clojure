@@ -28,15 +28,21 @@
            (recur (rest coll) (inc i))))))
   {:tag Integer})
 
-(defn group-by
-  "Categorizes elements within a coll into a map based on a keyfn."
-  ([keyfn coll]
-     (group-by keyfn {} coll))
-  ([keyfn init coll]
-     (reduce #(let [key (keyfn %2)
-                    val (conj (get %1 key []) %2)]
-                (assoc %1 key val))
-             init coll)))
+(when-not (ns-resolve 'clojure.core 'group-by)
+  ;; TODO: not sure why eval is necessary here; breaks without it.
+  (eval '(defn group-by
+           "Categorizes elements within a coll into a map based on a function."
+           ([f coll]
+              (reduce
+               (fn [ret x]
+                 (let [k (f x)]
+                   (assoc ret k (conj (get ret k []) x))))
+               {})))))
+
+(when-not (ns-resolve 'clojure.core 'flatten)
+  (eval '(defn flatten [x]
+           (filter (complement sequential?)
+                   (rest (tree-seq sequential? seq x))))))
 
 (defmacro returning [[var ret] & body]
   `(let [~var ~ret]

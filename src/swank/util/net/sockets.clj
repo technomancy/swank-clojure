@@ -29,25 +29,17 @@
 (defn start-server-socket!
   "Given a `server-socket' (java.net.ServerSocket), call
    `handle-socket' for each new connection and provide current
-   socket. 
-
-   `multiple-connections?' defines whether multiple connections can be
-   made to this socket server (default: true).
+   socket.
 
    This will return immediately with the Thread that is blocking for
    new connections. Use Thread.join() if you need to wait for the
    server to close."
   ([server-socket handle-socket]
-     (start-server-socket! server-socket handle-socket true))
-  ([server-socket handle-socket multiple-connections?]
      (dothread-keeping-clj nil
        (thread-set-name (str "Socket Server [" (thread-id) "]"))
        (with-open [#^ServerSocket server server-socket]
-         (try
-          (if multiple-connections?
-            (while (not (.isClosed server))
-              (handle-socket (.accept server)))
-            (handle-socket (.accept server))))))))
+         (while (not (.isClosed server))
+           (handle-socket (.accept server)))))))
 
 (defn close-socket!
   "Cleanly shutdown and close a java.net.Socket. This will not affect

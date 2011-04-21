@@ -12,7 +12,7 @@
   (:use (swank util core commands))
   (:use (swank.util clojure)))
 
-(def *fuzzy-recursion-soft-limit* 30)
+(def #^{:dynamic true} *fuzzy-recursion-soft-limit* 30)
 (defn- compute-most-completions [short full]
   (let [collect-chunk (fn [[pcur [[pa va] ys]] [pb vb]]
                         (let [xs (if (= (dec pb) pcur)
@@ -44,9 +44,9 @@
                  (recur short (rest full) (inc pos) chunk seed false)))]
     (map reverse (step short full 0 [] () false))))
 
-(def *fuzzy-completion-symbol-prefixes* "*+-%&?<")
-(def *fuzzy-completion-word-separators* "-/.")
-(def *fuzzy-completion-symbol-suffixes* "*+->?!")
+(def fuzzy-completion-symbol-prefixes "*+-%&?<")
+(def fuzzy-completion-word-separators "-/.")
+(def fuzzy-completion-symbol-suffixes "*+->?!")
 (defn- score-completion [completion short full]
   (let [find1
         (fn [c s]
@@ -55,13 +55,13 @@
         after-prefix?
         (fn [pos]
           (and (= pos 1)
-               (find1 (nth full 0) *fuzzy-completion-symbol-prefixes*)))
+               (find1 (nth full 0) fuzzy-completion-symbol-prefixes)))
         word-separator?
         (fn [pos]
-          (find1 (nth full pos) *fuzzy-completion-word-separators*))
+          (find1 (nth full pos) fuzzy-completion-word-separators))
         after-word-separator?
         (fn [pos]
-          (find1 (nth full (dec pos)) *fuzzy-completion-word-separators*))
+          (find1 (nth full (dec pos)) fuzzy-completion-word-separators))
         at-end?
         (fn [pos]
           (= pos (dec (count full))))
@@ -69,7 +69,7 @@
         (fn [pos]
           (and (= pos (- (count full) 2))
                (find1 (nth full (dec (count full)))
-                      *fuzzy-completion-symbol-suffixes*)))]
+                      fuzzy-completion-symbol-suffixes)))]
     (letfn [(score-or-percentage-of-previous
              [base-score pos chunk-pos]
              (if (zero? chunk-pos)

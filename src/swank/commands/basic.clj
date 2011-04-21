@@ -1,10 +1,11 @@
 (ns swank.commands.basic
-  (:refer-clojure :exclude [load-file])
+  (:refer-clojure :exclude [load-file print-doc])
   (:use (swank util commands core)
         (swank.util.concurrent thread)
         (swank.util string clojure)
         (swank.clj-contrib pprint macroexpand))
-  (:require (swank.util [sys :as sys]))
+  (:require (swank.util [sys :as sys])
+            (swank.commands [xref :as xref]))
   (:import (java.io StringReader File)
            (java.util.zip ZipFile)
            (clojure.lang LineNumberingPushbackReader)))
@@ -13,19 +14,19 @@
 
 (defslimefn connection-info []
   `(:pid ~(sys/get-pid)
-    :style :spawn
-    :lisp-implementation (:type "Clojure"
-                          :name "clojure"
-                          :version ~(clojure-version))
-    :package (:name ~(name (ns-name *ns*))
-              :prompt ~(name (ns-name *ns*)))
-    :version ~(deref *protocol-version*)))
+         :style :spawn
+         :lisp-implementation (:type "Clojure"
+                                     :name "clojure"
+                                     :version ~(clojure-version))
+         :package (:name ~(name (ns-name *ns*))
+                         :prompt ~(name (ns-name *ns*)))
+         :version ~(deref protocol-version)))
 
 (defslimefn quit-lisp []
   (System/exit 0))
 
 (defslimefn toggle-debug-on-swank-error []
-  (alter-var-root #'swank.core/*debug-swank-clojure* not))
+  (alter-var-root #'swank.core/debug-swank-clojure not))
 
 ;;;; Evaluation
 
@@ -35,7 +36,8 @@
   ([string]
      (eval-region string "NO_SOURCE_FILE" 1))
   ([string file line]
-     (with-open [rdr (proxy [LineNumberingPushbackReader] ((StringReader. string))
+     (with-open [rdr (proxy [LineNumberingPushbackReader]
+                         ((StringReader. string))
                        (getLineNumber [] line))]
        (binding [*file* file]
          (loop [form (read rdr false rdr), value nil, last-form nil]
@@ -44,6 +46,16 @@
              (recur (read rdr false rdr)
                     (eval (with-env-locals form))
                     form)))))))
+
+(defn- compile-region
+  "Compile region."
+  ([string file line]
+     (with-open [rdr1 (proxy [LineNumberingPushbackReader]
+                          ((StringReader. string)))
+                 rdr (proxy [LineNumberingPushbackReader] (rdr1)
+                       (getLineNumber [] (+ line (.getLineNumber rdr1) -1)))]
+       (clojure.lang.Compiler/load rdr file (.getName (File. file))))))
+
 
 (defslimefn interactive-eval-region [string]
   (with-emacs-package
@@ -55,20 +67,20 @@
 
 (defslimefn listener-eval [form]
   (with-emacs-package
-   (with-package-tracking
-    (let [[value last-form] (eval-region form)]
-      (when (and last-form (not (one-of? last-form '*1 '*2 '*3 '*e)))
-        (set! *3 *2)
-        (set! *2 *1)
-        (set! *1 value))
-      (send-repl-results-to-emacs value)))))
+    (with-package-tracking
+      (let [[value last-form] (eval-region form)]
+        (when (and last-form (not (one-of? last-form '*1 '*2 '*3 '*e)))
+          (set! *3 *2)
+          (set! *2 *1)
+          (set! *1 value))
+        (send-repl-results-to-emacs value)))))
 
 (defslimefn eval-and-grab-output [string]
   (with-emacs-package
-    (with-local-vars [retval nil]
+    (let [retval (promise)]
       (list (with-out-str
-              (var-set retval (pr-str (first (eval-region string)))))
-            (var-get retval)))))
+              (deliver retval (pr-str (first (eval-region string)))))
+            @retval))))
 
 (defslimefn pprint-eval [string]
   (with-emacs-package
@@ -91,10 +103,10 @@
 
 ;;;; Compiler / Execution
 
-(def *compiler-exception-location-re* #"Exception:.*\(([^:]+):([0-9]+)\)")
+(def compiler-exception-location-re #"Exception:.*\(([^:]+):([0-9]+)\)")
 (defn- guess-compiler-exception-location [#^Throwable t]
   (when (instance? clojure.lang.Compiler$CompilerException t)
-    (let [[match file line] (re-find *compiler-exception-location-re* (.toString t))]
+    (let [[match file line] (re-find compiler-exception-location-re (str t))]
       (when (and file line)
         `(:location (:file ~file) (:line ~(Integer/parseInt line)) nil)))))
 
@@ -107,7 +119,7 @@
 (defn- exception-to-message [#^Throwable t]
   `(:message ~(.toString t)
              :severity :error
-             :location ~(exception-location t) 
+             :location ~(exception-location t)
              :references nil
              :short-message ~(.toString t)))
 
@@ -119,19 +131,19 @@
   ([file-name]
      (let [start (System/nanoTime)]
        (try
-        (let [ret (clojure.core/load-file file-name)
-              delta (- (System/nanoTime) start)]
-          `(:compilation-result nil ~(pr-str ret) ~(/ delta 1000000000.0)))
-        (catch Throwable t
-          (let [delta (- (System/nanoTime) start)
-                causes (exception-causes t)
-                num (count causes)]
-            (.printStackTrace t) ;; prints to *inferior-lisp*
-            `(:compilation-result
-              ~(map exception-to-message causes) ;; notes
-              nil ;; results
-              ~(/ delta 1000000000.0) ;; durations
-              )))))))
+         (let [ret (clojure.core/load-file file-name)
+               delta (- (System/nanoTime) start)]
+           `(:compilation-result nil ~(pr-str ret) ~(/ delta 1000000000.0)))
+         (catch Throwable t
+           (let [delta (- (System/nanoTime) start)
+                 causes (exception-causes t)
+                 num (count causes)]
+             (.printStackTrace t) ;; prints to *inferior-lisp*
+             `(:compilation-result
+               ~(map exception-to-message causes) ;; notes
+               nil ;; results
+               ~(/ delta 1000000000.0) ;; durations
+               )))))))
 
 (defslimefn compile-file-for-emacs
   ([file-name load? & compile-options]
@@ -139,33 +151,82 @@
        (compile-file-for-emacs* file-name))))
 
 (defslimefn load-file [file-name]
-  (pr-str (clojure.core/load-file file-name)))
+  (let [libs-ref @(resolve 'clojure.core/*loaded-libs*)
+        libs @libs-ref]
+    (try
+      (dosync (ref-set libs-ref #{}))
+      (pr-str (clojure.core/load-file file-name))
+         (finally
+          (dosync (alter libs-ref into libs))))))
 
 (defn- line-at-position [file position]
   (try
-   (with-open [f (java.io.LineNumberReader. (java.io.FileReader. file))]
-     (.skip f position)
-     (.getLineNumber f))
-   (catch Exception e 1)))
+    (with-open [f (java.io.LineNumberReader. (java.io.FileReader. file))]
+      (.skip f position)
+      (.getLineNumber f))
+    (catch Exception e 1)))
 
 (defslimefn compile-string-for-emacs [string buffer position directory debug]
   (let [start (System/nanoTime)
         line (line-at-position directory position)
-        ret (with-emacs-package (eval-region string directory line))
+        ret (with-emacs-package
+              (when-not (= (name (ns-name *ns*)) *current-package*)
+                (throw (clojure.lang.Compiler$CompilerException.
+                        directory line
+                        (Exception. (str "No such namespace: "
+                                         *current-package*)))))
+              (compile-region string directory line))
         delta (- (System/nanoTime) start)]
     `(:compilation-result nil ~(pr-str ret) ~(/ delta 1000000000.0))))
 
 ;;;; Describe
 
+(defn- maybe-resolve-sym [symbol-name]
+  (try
+    (ns-resolve (maybe-ns *current-package*) (symbol symbol-name))
+    (catch ClassNotFoundException e nil)))
+
+(defn- maybe-resolve-ns [sym-name]
+  (let [sym (symbol sym-name)]
+    (or ((ns-aliases (maybe-ns *current-package*)) sym)
+        (find-ns sym))))
+
+(defn- print-doc* [m]
+  (println "-------------------------")
+  (println (str (when-let [ns (:ns m)] (str (ns-name ns) "/")) (:name m)))
+  (cond
+   (:forms m) (doseq [f (:forms m)]
+                (print "  ")
+                (prn f))
+   (:arglists m) (prn (:arglists m)))
+  (if (:special-form m)
+    (do
+      (println "Special Form")
+      (println " " (:doc m))
+      (if (contains? m :url)
+        (when (:url m)
+          (println (str "\n  Please see http://clojure.org/" (:url m))))
+        (println (str "\n  Please see http://clojure.org/special_forms#"
+                      (:name m)))))
+    (do
+      (when (:macro m)
+        (println "Macro"))
+      (println " " (:doc m)))))
+
+(def print-doc (let [print-doc (resolve 'clojure.core/print-doc)]
+                 (if (or (nil? print-doc) (-> print-doc meta :private))
+                   (comp print-doc* meta)
+                   print-doc)))
+
 (defn- describe-to-string [var]
   (with-out-str
-   (print-doc var)))
+    (print-doc var)))
 
 (defn- describe-symbol* [symbol-name]
   (with-emacs-package
-   (if-let [v (ns-resolve (maybe-ns *current-package*) (symbol symbol-name))]
-     (describe-to-string v)
-     (str "Unknown symbol " symbol-name))))
+    (if-let [v (maybe-resolve-sym symbol-name)]
+      (if-not (class? v)
+        (describe-to-string v)))))
 
 (defslimefn describe-symbol [symbol-name]
   (describe-symbol* symbol-name))
@@ -185,14 +246,14 @@
 ;;;; Documentation
 
 (defn- briefly-describe-symbol-for-emacs [var]
-  (let [lines (fn [s] (seq (.split #^String s (System/getProperty "line.separator"))))
+  (let [lines (fn [s] (.split #^String s (System/getProperty "line.separator")))
         [_ symbol-name arglists d1 d2 & __] (lines (describe-to-string var))
         macro? (= d1 "Macro")]
     (list :designator symbol-name
           (cond
-            macro? :macro
-            (:arglists (meta var)) :function
-            :else :variable)
+           macro? :macro
+           (:arglists (meta var)) :function
+           :else :variable)
           (apply str (concat arglists (if macro? d2 d1))))))
 
 (defn- make-apropos-matcher [pattern case-sensitive?]
@@ -216,17 +277,17 @@ Sorted alphabetically by namespace name and then symbol name, except
 that symbols accessible in the current namespace go first."
   [x y]
   (let [accessible?
-        (fn [var] (= (ns-resolve (maybe-ns *current-package*) (:name (meta var)))
+        (fn [var] (= (maybe-resolve-sym (:name (meta var)))
                      var))
         ax (accessible? x) ay (accessible? y)]
     (cond
-      (and ax ay) (compare (:name (meta x)) (:name (meta y)))
-      ax -1
-      ay 1
-      :else (let [nx (str (:ns (meta x))) ny (str (:ns (meta y)))]
-              (if (= nx ny)
-                (compare (:name (meta x)) (:name (meta y)))
-                (compare nx ny))))))
+     (and ax ay) (compare (:name (meta x)) (:name (meta y)))
+     ax -1
+     ay 1
+     :else (let [nx (str (:ns (meta x))) ny (str (:ns (meta y)))]
+             (if (= nx ny)
+               (compare (:name (meta x)) (:name (meta y)))
+               (compare nx ny))))))
 
 (defslimefn apropos-list-for-emacs
   ([name]
@@ -237,8 +298,7 @@ that symbols accessible in the current namespace go first."
      (apropos-list-for-emacs name external-only? case-sensitive? nil))
   ([name external-only? case-sensitive? package]
      (let [package (when package
-                     (or (find-ns (symbol package))
-                         'user))]
+                     (maybe-ns package))]
        (map briefly-describe-symbol-for-emacs
             (sort present-symbol-before
                   (apropos-symbols name external-only? case-sensitive?
@@ -247,15 +307,15 @@ that symbols accessible in the current namespace go first."
 ;;;; Operator messages
 (defslimefn operator-arglist [name package]
   (try
-   (let [f (read-string name)]
-     (cond
-      (keyword? f) "([map])"
-      (symbol? f) (let [var (ns-resolve (maybe-ns package) f)]
-                    (if-let [args (and var (:arglists (meta var)))]
-                      (pr-str args)
-                      nil))
-      :else nil))
-   (catch Throwable t nil)))
+    (let [f (read-string name)]
+      (cond
+       (keyword? f) "([map])"
+       (symbol? f) (let [var (ns-resolve (maybe-ns package) f)]
+                     (if-let [args (and var (:arglists (meta var)))]
+                       (pr-str args)
+                       nil))
+       :else nil))
+    (catch Throwable t nil)))
 
 ;;;; Package Commands
 
@@ -273,32 +333,40 @@ that symbols accessible in the current namespace go first."
 
 (defonce traced-fn-map {})
 
+(def #^{:dynamic true} *trace-level* 0)
+
+(defn- indent [num]
+  (dotimes [x (+ 1 num)]
+    (print "  ")))
+
 (defn- trace-fn-call [sym f args]
- (let [fname (symbol (str (.name (.ns sym)) "/" (.sym sym)))]
-   (println (str "Calling")
-            (apply str (take 240 (pr-str (when fname (cons fname args)) ))))
-   (let [result (apply f args)]
-     (println (str fname " returned " (apply str (take 240 (pr-str result)))))
-     result)))
+  (let [fname (symbol (str (.name (.ns sym)) "/" (.sym sym)))]
+    (indent *trace-level*)
+    (println (str *trace-level* ":")
+             (apply str (take 240 (pr-str (when fname (cons fname args)) ))))
+    (let [result (binding [*trace-level* (+ *trace-level* 1)] (apply f args))]
+      (indent *trace-level*)
+      (println (str *trace-level* ": " fname " returned " (apply str (take 240 (pr-str result)))))
+      result)))
 
 (defslimefn swank-toggle-trace [fname]
- (when-let [sym (ns-resolve (maybe-ns *current-package*) (symbol fname))]
-   (if-let [f# (get traced-fn-map sym)]
-     (do
-       (alter-var-root #'traced-fn-map dissoc sym)
-       (alter-var-root sym (constantly f#))
-       (str " untraced."))
-     (let [f# @sym]
-       (alter-var-root #'traced-fn-map assoc sym f#)
-       (alter-var-root sym
-         (constantly
-           (fn [& args]
-             (trace-fn-call sym f# args))))
-       (str " traced.")))))
+  (when-let [sym (maybe-resolve-sym fname)]
+    (if-let [f# (get traced-fn-map sym)]
+      (do
+        (alter-var-root #'traced-fn-map dissoc sym)
+        (alter-var-root sym (constantly f#))
+        (str " untraced."))
+      (let [f# @sym]
+        (alter-var-root #'traced-fn-map assoc sym f#)
+        (alter-var-root sym
+                        (constantly
+                         (fn [& args]
+                           (trace-fn-call sym f# args))))
+        (str " traced.")))))
 
 (defslimefn untrace-all []
- (doseq [sym (keys traced-fn-map)]
-   (swank-toggle-trace (.sym sym))))
+  (doseq [sym (keys traced-fn-map)]
+    (swank-toggle-trace (.sym sym))))
 
 ;;;; Source Locations
 (comment
@@ -328,7 +396,7 @@ that symbols accessible in the current namespace go first."
   (list :file (clean-windows-path (.getFile resource))))
 
 (defn- slime-find-resource [#^String file]
-  (let [resource (.getResource (clojure.lang.RT/baseLoader) file)]
+  (if-let [resource (.getResource (clojure.lang.RT/baseLoader) file)]
     (if (= (.getProtocol resource) "jar")
       (slime-zip-resource resource)
       (slime-file-resource resource))))
@@ -350,6 +418,24 @@ that symbols accessible in the current namespace go first."
   (namespace-to-path
    (symbol (.replace class-name \_ \-))))
 
+
+(defn- location-in-file [path line]
+  `(:location ~path (:line ~line) nil))
+
+(defn- location-label [name type]
+  (if type
+    (str "(" type " " name ")")
+    (str name)))
+
+(defn- location [name type path line]
+  `((~(location-label name type)
+     ~(if path
+        (location-in-file path line)
+        (list :error (format "%s - definition not found." name))))))
+
+(defn- location-not-found [name type]
+  (location name type nil nil))
+
 (defn source-location-for-frame [#^StackTraceElement frame]
   (let [line     (.getLineNumber frame)
         filename (if (.. frame getFileName (endsWith ".java"))
@@ -363,48 +449,62 @@ that symbols accessible in the current namespace go first."
                        (str ns-path File/separator (.getFileName frame))
                        (.getFileName frame))))
         path     (slime-find-file filename)]
-    `(:location ~path (:line ~line) nil)))
+    (location-in-file path line)))
+
+(defn- namespace-to-filename [ns]
+  (str (-> (str ns)
+           (.replaceAll "\\." File/separator)
+           (.replace \- \_ ))
+       ".clj"))
+
+(defn- source-location-for-meta [meta xref-type-name]
+  (location (:name meta)
+            xref-type-name
+            (slime-find-file (:file meta))
+            (:line meta)))
+
+(defn- find-ns-definition [sym-name]
+  (if-let [ns (maybe-resolve-ns sym-name)]
+    (when-let [path (slime-find-file (namespace-to-filename ns))]
+      (location ns nil path 1))))
+
+(defn- find-var-definition [sym-name]
+  (if-let [meta (meta (maybe-resolve-sym sym-name))]
+    (source-location-for-meta meta "defn")))
 
 (defslimefn find-definitions-for-emacs [name]
-  (let [sym-name (read-string name)
-        sym-var (ns-resolve (maybe-ns *current-package*) sym-name)]
-    (when-let [meta (and sym-var (meta sym-var))]
-      (if-let [path (slime-find-file (:file meta))]
-        `((~(str "(defn " (:name meta) ")")
-           (:location
-            ~path
-            (:line ~(:line meta))
-            nil)))
-        `((~(str (:name meta))
-           (:error "Source definition not found.")))))))
+  (let [sym-name (read-string name)]
+    (or (find-var-definition sym-name)
+        (find-ns-definition sym-name)
+        (location name nil nil nil))))
 
 (defn who-specializes [class]
   (letfn [(xref-lisp [sym] ; see find-definitions-for-emacs
-            (if-let [meta (and sym (meta sym))]
-              (if-let [path (slime-find-file (:file meta))]
-                      `((~(str "(method " (:name meta) ")")
-                          (:location
-                           ~path
-                           (:line ~(:line meta))
-                           nil)))
-                      `((~(str (:name meta))
-                          (:error "Source definition not found."))))
-              `((~(str "(method " (.getName sym) ")")
-                  (:error ~(format "%s - definition not found." sym))))))]
-         (let [methods (try (. class getMethods) 
-                            (catch java.lang.IllegalArgumentException e nil)
-                            (catch java.lang.NullPointerException e nil))]
-              (map xref-lisp methods))))     
+                     (if-let [meta (meta sym)]
+                       (source-location-for-meta meta "method")
+                       (location-not-found (.getName sym) "method")))]
+    (let [methods (try (. class getMethods)
+                       (catch java.lang.IllegalArgumentException e nil)
+                       (catch java.lang.NullPointerException e nil))]
+      (map xref-lisp methods))))
+
+(defn who-calls [name]
+  (letfn [(xref-lisp [sym-var]        ; see find-definitions-for-emacs
+                     (when-let [meta (meta sym-var)]
+                       (source-location-for-meta meta nil)))]
+    (let [callers (xref/all-vars-who-call name) ]
+      (map first (map xref-lisp callers)))))
 
 (defslimefn xref [type name]
-  (let [sexp (ns-resolve (maybe-ns *current-package*) (symbol name))]
+  (let [sexp (maybe-resolve-sym name)]
        (condp = type
               :specializes (who-specializes sexp)
+              :calls   (who-calls (symbol name))
               :callers nil
               :not-implemented)))
 
 (defslimefn throw-to-toplevel []
-  (throw *debug-quit-exception*))
+  (throw debug-quit-exception))
 
 (defn invoke-restart [restart]
   ((nth restart 2)))
@@ -431,12 +531,14 @@ that symbols accessible in the current namespace go first."
 (defslimefn buffer-first-change [file-name] nil)
 
 (defn locals-for-emacs [m]
-  (map #(list :name (name (first %)) :id 0 :value (str (second %))) m))
+  (sort-by second
+           (map #(list :name (name (first %)) :id 0
+                       :value (pr-str (second %))) m)))
 
 (defslimefn frame-catch-tags-for-emacs [n] nil)
 (defslimefn frame-locals-for-emacs [n]
-  (if (and (zero? n) *current-env*)
-      (locals-for-emacs (local-non-functions *current-env*))))
+  (if (and (zero? n) (seq *current-env*))
+    (locals-for-emacs *current-env*)))
 
 (defslimefn frame-locals-and-catch-tags [n]
   (list (frame-locals-for-emacs n)
@@ -452,12 +554,12 @@ that symbols accessible in the current namespace go first."
 
 (defslimefn frame-source-location [n]
   (source-location-for-frame
-     (nth (.getStackTrace *current-exception*) n)))
+   (nth (.getStackTrace *current-exception*) n)))
 
 ;; Older versions of slime use this instead of the above.
 (defslimefn frame-source-location-for-emacs [n]
   (source-location-for-frame
-     (nth (.getStackTrace *current-exception*) n)))
+   (nth (.getStackTrace *current-exception*) n)))
 
 (defslimefn create-repl [target] '("user" "user"))
 
@@ -491,10 +593,9 @@ corresponding attribute values per thread."
 ;;; TODO: Find a better way, as Thread.stop is deprecated
 (defslimefn kill-nth-thread [index]
   (when index
-   (when-let [thread (nth @thread-list index nil)]
-     (println "Thread: " thread)
-     (.stop thread))))
+    (when-let [thread (nth @thread-list index nil)]
+      (println "Thread: " thread)
+      (.stop thread))))
 
 (defslimefn quit-thread-browser []
   (reset! thread-list []))
-

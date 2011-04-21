@@ -97,4 +97,4 @@
       *current-connection*
       (need-full-indentation-update? *current-connection*))))
 
-(add-hook *pre-reply-hook* #'sync-indentation-to-emacs)
+(add-hook pre-reply-hook #'sync-indentation-to-emacs)

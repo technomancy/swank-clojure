@@ -5,8 +5,8 @@
   (:import (java.net ServerSocket Socket InetAddress)
            (java.io InputStreamReader OutputStreamWriter)))
 
-(def *current-connection*)
-(def *default-encoding* "iso-8859-1")
+(def #^{:dynamic true} *current-connection*)
+(def default-encoding "iso-8859-1")
 
 (defmacro with-connection [conn & body]
   `(binding [*current-connection* ~conn] ~@body))
@@ -32,11 +32,11 @@
    argument `encoding' to define the encoding of the connection. If
    encoding is nil, then the default encoding will be used.
 
-   See also: `*default-encoding*', `start-server-socket!'"
-  ([#^Socket socket] (make-connection socket *default-encoding*))
+   See also: `default-encoding', `start-server-socket!'"
+  ([#^Socket socket] (make-connection socket default-encoding))
   ([#^Socket socket encoding]
      (let [#^String
-           encoding (or (encoding-map encoding encoding) *default-encoding*)]
+           encoding (or (encoding-map encoding encoding) default-encoding)]
        {:socket socket
         :reader (InputStreamReader. (.getInputStream socket) encoding)
         :writer (OutputStreamWriter. (.getOutputStream socket) encoding)

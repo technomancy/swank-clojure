@@ -8,7 +8,8 @@ TODO
 ** M-. should work for namespaces
 ** xref for all callers of a function?
 * Piggyback elisp code in jars
-* Integrate with debug-repl
+* Type-hint-based completion for java interop
+* optionally pprint return values at repl
 * Known bugs
 ** TODO SLIME Inspector breaks in Emacs 22
 ** TODO *in* only works from *inferior-lisp*

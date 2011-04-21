@@ -1,5 +1,5 @@
 classes/
 lib/
-swank-clojure.jar
-Manifest.txt
+multi-lib/
+swank-clojure*jar
 pom.xml

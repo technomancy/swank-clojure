@@ -13,7 +13,7 @@
 ;;  - Creates swank.core.connections
 ;;  - Spins up new threads
 
-(defonce *connections* (ref []))
+(defonce connections (ref []))
 
 (def slime-secret-path (str (user-home-path) File/separator ".slime-secret"))
 
@@ -40,7 +40,7 @@
 
    See also: `slime-secret'"
   ([#^Socket socket opts]
-     (returning [conn (make-connection socket (get opts :encoding *default-encoding*))]
+     (returning [conn (make-connection socket (get opts :encoding default-encoding))]
        (if-let [secret (slime-secret)]
          (when-not (= (read-from-connection conn) secret)
            (close-socket! socket))
@@ -53,17 +53,15 @@
          (send-to-emacs `(:write-string ~%)))))
   {:tag java.io.StringWriter})
 
-(def dont-close nil)
-
 (defn- socket-serve [connection-serve socket opts]
   (with-connection (accept-authenticated-connection socket opts)
-    (let [out-redir (java.io.PrintWriter. (make-output-redirection *current-connection*))]
+    (let [out-redir (java.io.PrintWriter. (make-output-redirection
+                                           *current-connection*))]
       (binding [*out* out-redir
                 *err* out-redir]
         (dosync (ref-set (*current-connection* :writer-redir) *out*))
-        (dosync (alter *connections* conj *current-connection*))
-        (connection-serve *current-connection*)
-        (not dont-close)))))
+        (dosync (alter connections conj *current-connection*))
+        (connection-serve *current-connection*)))))
 
 ;; Setup frontent
 (defn start-swank-socket-server!
@@ -71,14 +69,10 @@
    optional set of options as a map:
 
     :announce - an fn that will be called and provided with the
-      listening port of the newly established server. Default: none.
-
-    :dont-close - will accept multiple connections if true. Default: false."
+    listening port of the newly established server. Default: none."
   ([server connection-serve] (start-swank-socket-server! connection-serve {}))
   ([server connection-serve options]
-     (start-server-socket! server
-                           connection-serve
-                           (options :dont-close))
+     (start-server-socket! server connection-serve)
      (when-let [announce (options :announce)]
        (announce (.getLocalPort server)))
      server))
@@ -87,14 +81,13 @@
   "The port it started on will be called as an argument to (announce-fn
    port). A connection will then be created and (connection-serve conn)
    will then be called."
-  ([port announce-fn connection-serve opts]
-     (start-swank-socket-server!
-      (make-server-socket {:port    port
-                           :host    (opts :host)
-                           :backlog (opts :backlog 0)})
-      #(socket-serve connection-serve % opts)
-      {:announce announce-fn
-       :dont-close (opts :dont-close)})))
+  [port announce-fn connection-serve opts]
+  (start-swank-socket-server!
+   (make-server-socket {:port    port
+                        :host    (opts :host "localhost")
+                        :backlog (opts :backlog 0)})
+   #(socket-serve connection-serve % opts)
+   {:announce announce-fn}))
 
 ;; Announcement functions
 (defn simple-announce [port]

@@ -6,23 +6,25 @@
   (:require (swank.util.concurrent [mbox :as mb])))
 
 ;; Protocol version
-(defonce *protocol-version* (ref nil))
+(defonce protocol-version (atom "20100404"))
 
 ;; Emacs packages
-(def *current-package*)
+(def #^{:dynamic true} *current-package*)
 
 ;; current emacs eval id
-(def *pending-continuations* '())
+(def #^{:dynamic true} *pending-continuations* '())
 
-(def *sldb-stepping-p* nil)
-(def *sldb-initial-frames* 10)
-(def #^{:doc "The current level of recursive debugging."} *sldb-level* 0)
-(def #^{:doc "The current restarts."} *sldb-restarts* 0)
+(def sldb-stepping-p nil)
+(def sldb-initial-frames 10)
+(def #^{:dynamic true} #^{:doc "The current level of recursive debugging."}
+  *sldb-level* 0)
+(def #^{:dynamic true} #^{:doc "The current restarts."}
+  *sldb-restarts* 0)
 
 (def #^{:doc "Include swank-clojure thread in stack trace for debugger."}
-     *debug-swank-clojure* false)
+     debug-swank-clojure false)
 
-(defonce *active-threads* (ref ()))
+(defonce active-threads (ref ()))
 
 (defn maybe-ns [package]
   (cond
@@ -50,14 +52,14 @@
      ~@body))
 
 ;; Exceptions for debugging
-(defonce *debug-quit-exception* (Exception. "Debug quit"))
-(defonce *debug-continue-exception* (Exception. "Debug continue"))
-(defonce *debug-abort-exception* (Exception. "Debug abort"))
+(defonce debug-quit-exception (Exception. "Debug quit"))
+(defonce debug-continue-exception (Exception. "Debug continue"))
+(defonce debug-abort-exception (Exception. "Debug abort"))
 
-(def #^Throwable *current-exception* nil)
+(def #^{:dynamic true} #^Throwable *current-exception* nil)
 
 ;; Local environment
-(def *current-env* nil)
+(def #^{:dynamic true} *current-env* nil)
 
 (let [&env :unavailable]
   (defmacro local-bindings
@@ -66,9 +68,6 @@
     (if-not (= &env :unavailable)
       (let [symbols (keys &env)]
         (zipmap (map (fn [sym] `(quote ~sym)) symbols) symbols)))))
-
-(defn local-non-functions [m]
-  (select-keys m  (filter #(or (coll? (m %)) (not (ifn? (m %)))) (keys m))))
 
 ;; Handle Evaluation
 (defn send-to-emacs
@@ -83,11 +82,10 @@
   "Evals a form with given locals. The locals should be a map of symbols to
 values."
   [form]
-  (let [m (local-non-functions *current-env*)]
-    (if (first m)
-      `(let ~(vec (mapcat #(list % (m %)) (keys m)))
-         ~form)
-      form)))
+  (if (seq *current-env*)
+    `(let ~(vec (mapcat #(list % `(*current-env* '~%)) (keys *current-env*)))
+       ~form)
+    form))
 
 (defn eval-in-emacs-package [form]
   (with-emacs-package
@@ -111,13 +109,13 @@ values."
               (exception-causes cause)))))
 
 (defn- debug-quit-exception? [t]
-  (some #(identical? *debug-quit-exception* %) (exception-causes t)))
+  (some #(identical? debug-quit-exception %) (exception-causes t)))
 
 (defn- debug-continue-exception? [t]
-  (some #(identical? *debug-continue-exception* %) (exception-causes t)))
+  (some #(identical? debug-continue-exception %) (exception-causes t)))
 
 (defn- debug-abort-exception? [t]
-  (some #(identical? *debug-abort-exception* %) (exception-causes t)))
+  (some #(identical? debug-abort-exception %) (exception-causes t)))
 
 (defn exception-stacktrace [t]
   (map #(list %1 %2 '(:restartable nil))
@@ -161,17 +159,18 @@ values."
 
 (defn calculate-restarts [thrown]
   (let [restarts [(make-restart :quit "QUIT" "Quit to the SLIME top level"
-                               (fn [] (throw *debug-quit-exception*)))]
+                               (fn [] (throw debug-quit-exception)))]
         restarts (add-restart-if
                   (pos? *sldb-level*)
                   restarts
                   :abort "ABORT" (str "ABORT to SLIME level " (dec *sldb-level*))
-                  (fn [] (throw *debug-abort-exception*)))
+                  (fn [] (throw debug-abort-exception)))
         restarts (add-restart-if
-                  (.contains (.getMessage thrown) "BREAK")
+                  (and (.getMessage thrown)
+                       (.contains (.getMessage thrown) "BREAK"))
                   restarts
                   :continue "CONTINUE" (str "Continue from breakpoint")
-                  (fn [] (throw *debug-continue-exception*)))
+                  (fn [] (throw debug-continue-exception)))
         restarts (add-cause-restarts restarts thrown)]
     (into (array-map) restarts)))
 
@@ -195,14 +194,14 @@ values."
   (try
    (send-to-emacs
     (list* :debug (current-thread) level
-           (build-debugger-info-for-emacs 0 *sldb-initial-frames*)))
+           (build-debugger-info-for-emacs 0 sldb-initial-frames)))
    ([] (continuously
         (do
           (send-to-emacs `(:debug-activate ~(current-thread) ~level nil))
           (eval-from-control))))
    (catch Throwable t
      (send-to-emacs
-      `(:debug-return ~(current-thread) ~*sldb-level* ~*sldb-stepping-p*))
+      `(:debug-return ~(current-thread) ~*sldb-level* ~sldb-stepping-p))
      (if-not (debug-continue-exception? t)
        (throw t)))))
 
@@ -238,7 +237,7 @@ values."
      (if-let [f (slime-fn (first form))]
        (let [form (cons f (rest form))
              result (doall-seq (eval-in-emacs-package form))]
-         (run-hook *pre-reply-hook*)
+         (run-hook pre-reply-hook)
          (send-to-emacs `(:return ~(thread-name (current-thread))
                                   (:ok ~result) ~id)))
        ;; swank function not defined, abort
@@ -262,7 +261,7 @@ values."
       (do
         (send-to-emacs `(:return ~(thread-name (current-thread)) (:abort ~(str t)) ~id))
         (if-not (zero? *sldb-level*)
-          (throw *debug-abort-exception*)))
+          (throw debug-abort-exception)))
 
       (debug-continue-exception? t)
       (do
@@ -275,18 +274,18 @@ values."
         (try
          (sldb-debug
           nil
-          (if *debug-swank-clojure* t (.getCause t))
+          (if debug-swank-clojure t (or (.getCause t) t))
           id)
          ;; reply with abort
          (finally (send-to-emacs `(:return ~(thread-name (current-thread)) (:abort ~(str t)) ~id)))))))))
 
 (defn- add-active-thread [thread]
   (dosync
-   (commute *active-threads* conj thread)))
+   (commute active-threads conj thread)))
 
 (defn- remove-active-thread [thread]
   (dosync
-   (commute *active-threads* (fn [threads] (remove #(= % thread) threads)))))
+   (commute active-threads (fn [threads] (remove #(= % thread) threads)))))
 
 (defn spawn-worker-thread
   "Spawn an thread that blocks for a single command from the control
@@ -372,8 +371,8 @@ values."
          (let [[thread & args] args]
            (dosync
             (cond
-             (and (true? thread) (seq @*active-threads*))
-             (.stop #^Thread (first @*active-threads*))
+             (and (true? thread) (seq @active-threads))
+             (.stop #^Thread (first @active-threads))
               (= thread :repl-thread) (.stop #^Thread @(conn :repl-thread)))))
          :else
          nil))))

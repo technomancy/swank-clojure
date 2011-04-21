@@ -7,21 +7,21 @@
 ;; This a mess, I'll clean up this code after I figure out exactly
 ;; what I need for debugging support.
 
-(def *inspectee* (ref nil))
-(def *inspectee-content* (ref nil))
-(def *inspectee-parts* (ref nil))
-(def *inspectee-actions* (ref nil))
-(def *inspector-stack* (ref nil))
-(def *inspector-history* (ref nil))
+(def inspectee (ref nil))
+(def inspectee-content (ref nil))
+(def inspectee-parts (ref nil))
+(def inspectee-actions (ref nil))
+(def inspector-stack (ref nil))
+(def inspector-history (ref nil))
 
 (defn reset-inspector []
   (dosync
-   (ref-set *inspectee* nil)
-   (ref-set *inspectee-content* nil)
-   (ref-set *inspectee-parts* [])
-   (ref-set *inspectee-actions* [])
-   (ref-set *inspector-stack* nil)
-   (ref-set *inspector-history* [])))
+   (ref-set inspectee nil)
+   (ref-set inspectee-content nil)
+   (ref-set inspectee-parts [])
+   (ref-set inspectee-actions [])
+   (ref-set inspector-stack nil)
+   (ref-set inspector-history [])))
 
 (defn inspectee-title [obj]
   (cond
@@ -30,7 +30,7 @@
 
 (defn print-part-to-string [value]
   (let [s (inspectee-title value)
-        pos (position #{value} @*inspector-history*)]
+        pos (position #{value} @inspector-history)]
     (if pos
       (str "#" pos "=" s)
       s)))
@@ -43,12 +43,12 @@
 
 (defn value-part [obj s]
   (list :value (or s (print-part-to-string obj))
-        (assign-index obj *inspectee-parts*)))
+        (assign-index obj inspectee-parts)))
 
 (defn action-part [label lambda refresh?]
   (list :action label
         (assign-index (list lambda refresh?)
-                      *inspectee-actions*)))
+                      inspectee-actions)))
 
 (defn label-value-line
   ([label value] (label-value-line label value true))
@@ -181,7 +181,7 @@
      (mapcat (fn [m]
                `("  " (:value ~m) (:newline))) meths))))
 
-(defmethod emacs-inspect :aref [#^ARef obj]
+(defmethod emacs-inspect :aref [#^clojure.lang.ARef obj]
   `("Type: " (:value ~(class obj)) (:newline)
     "Value: " (:value ~(deref obj)) (:newline)))
 
@@ -237,14 +237,14 @@
 
 (defn inspect-object [o]
   (dosync
-   (ref-set *inspectee* o)
-   (alter *inspector-stack* conj o)
-   (when-not (filter #(identical? o %) @*inspector-history*)
-     (alter *inspector-history* conj o))
-   (ref-set *inspectee-content* (inspector-content (emacs-inspect o)))
+   (ref-set inspectee o)
+   (alter inspector-stack conj o)
+   (when-not (filter #(identical? o %) @inspector-history)
+     (alter inspector-history conj o))
+   (ref-set inspectee-content (inspector-content (emacs-inspect o)))
    (list :title (inspectee-title o)
-         :id (assign-index o *inspectee-parts*)
-         :content (content-range @*inspectee-content* 0 500))))
+         :id (assign-index o inspectee-parts)
+         :content (content-range @inspectee-content 0 500))))
 
 (defslimefn init-inspector [string]
   (with-emacs-package
@@ -258,29 +258,29 @@
               (send-to-emacs `(:inspect ~(inspect-object what)))))]
     (cond
       *current-connection* (send-it)
-      (comment (first @*connections*))
-      ;; TODO: take a second look at this, will probably need garbage collection on *connections*
+      (comment (first @connections))
+      ;; TODO: take a second look at this, will probably need garbage collection on connections
       (comment
-        (binding [*current-connection* (first @*connections*)]
+        (binding [*current-connection* (first @connections)]
           (send-it))))))
 
 (defslimefn inspect-frame-var [frame index]
   (if (and (zero? frame) *current-env*)
-    (let [locals (local-non-functions *current-env*)
+    (let [locals *current-env*
           object (locals (nth (keys locals) index))]
       (with-emacs-package
         (reset-inspector)
         (inspect-object object)))))
 
 (defslimefn inspector-nth-part [index]
-  (get @*inspectee-parts* index))
+  (get @inspectee-parts index))
 
 (defslimefn inspect-nth-part [index]
   (with-emacs-package
    (inspect-object ((slime-fn 'inspector-nth-part) index))))
 
 (defslimefn inspector-range [from to]
-  (content-range @*inspectee-content* from to))
+  (content-range @inspectee-content from to))
 
 (defn ref-pop [ref]
   (let [[f & r] @ref]
@@ -288,31 +288,31 @@
     f))
 
 (defslimefn inspector-call-nth-action [index & args]
-  (let [[fn refresh?] (get @*inspectee-actions* index)]
+  (let [[fn refresh?] (get @inspectee-actions index)]
     (apply fn args)
     (if refresh?
-      (inspect-object (dosync (ref-pop *inspector-stack*)))
+      (inspect-object (dosync (ref-pop inspector-stack)))
       nil)))
 
 (defslimefn inspector-pop []
   (with-emacs-package
    (cond
-    (rest @*inspector-stack*)
+    (rest @inspector-stack)
     (inspect-object
      (dosync
-      (ref-pop *inspector-stack*)
-      (ref-pop *inspector-stack*)))
+      (ref-pop inspector-stack)
+      (ref-pop inspector-stack)))
     :else nil)))
 
 (defslimefn inspector-next []
   (with-emacs-package
-    (let [pos (position #{@*inspectee*} @*inspector-history*)]
+    (let [pos (position #{@inspectee} @inspector-history)]
       (cond
-       (= (inc pos) (count @*inspector-history*)) nil
-       :else (inspect-object (get @*inspector-history* (inc pos)))))))
+       (= (inc pos) (count @inspector-history)) nil
+       :else (inspect-object (get @inspector-history (inc pos)))))))
 
 (defslimefn inspector-reinspect []
-  (inspect-object @*inspectee*))
+  (inspect-object @inspectee))
 
 (defslimefn quit-inspector []
   (reset-inspector)
@@ -320,4 +320,4 @@
 
 (defslimefn describe-inspectee []
   (with-emacs-package
-   (str @*inspectee*)))
+   (str @inspectee)))

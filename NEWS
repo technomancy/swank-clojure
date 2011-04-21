@@ -1,0 +1,31 @@
+Swank Clojure NEWS -- history of user-visible changes
+
+= 1.2.0 / 2010-05-15
+
+* Move lein-swank plugin to be bundled with swank-clojure.
+
+* Support M-x slime-who-calls. List all the callers of a given function.
+
+* Add swank.core/break.
+
+* Support slime-pprint-eval-last-expression.
+
+* Improve support for trunk slime.
+
+* Completion for static Java members.
+
+* Show causes of exceptions in debugger.
+
+* Preserve line numbers when compiling a region/defn.
+
+* Relicense to the EPL (same as Clojure).
+
+* Better compatibility with Clojure 1.2.
+
+= 1.1.0 / 2010-01-01
+
+* A whole mess of stuff!
+
+= 1.0.0 / 2009-11-10
+
+* First versioned release.

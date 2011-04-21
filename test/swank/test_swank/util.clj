@@ -39,10 +39,3 @@
     (are [coll pred] (not (position pred coll))
          [1 3 5 7] even?
          [:a :b :c :d] #{:e})))
-
-(deftest test-group-by
-  (are [coll keyfn result] (= (group-by keyfn coll) result)
-       [1 2 3 4] #(rem % 2) {0 [2 4] 1 [1 3]}))
-
-
-
