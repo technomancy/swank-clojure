@@ -242,7 +242,7 @@ values."
          (send-to-emacs `(:return ~(thread-name (current-thread))
                                   (:ok ~result) ~id)))
        ;; swank function not defined, abort
-       (send-to-emacs `(:return ~(thread-name (current-thread)) (:abort) ~id))))
+       (send-to-emacs `(:return ~(thread-name (current-thread)) (:abort "NIL") ~id))))
    (catch Throwable t
      ;; Thread/interrupted clears this thread's interrupted status; if
      ;; Thread.stop was called on us it may be set and will cause an
@@ -254,19 +254,19 @@ values."
      (cond
       (debug-quit-exception? t)
       (do
-        (send-to-emacs `(:return ~(thread-name (current-thread)) (:abort) ~id))
+        (send-to-emacs `(:return ~(thread-name (current-thread)) (:abort ~(str t)) ~id))
         (if-not (zero? *sldb-level*)
           (throw t)))
 
       (debug-abort-exception? t)
       (do
-        (send-to-emacs `(:return ~(thread-name (current-thread)) (:abort) ~id))
+        (send-to-emacs `(:return ~(thread-name (current-thread)) (:abort ~(str t)) ~id))
         (if-not (zero? *sldb-level*)
           (throw *debug-abort-exception*)))
 
       (debug-continue-exception? t)
       (do
-        (send-to-emacs `(:return ~(thread-name (current-thread)) (:abort) ~id))
+        (send-to-emacs `(:return ~(thread-name (current-thread)) (:abort ~(str t)) ~id))
         (throw t))
 
       :else
@@ -278,7 +278,7 @@ values."
           (if *debug-swank-clojure* t (.getCause t))
           id)
          ;; reply with abort
-         (finally (send-to-emacs `(:return ~(thread-name (current-thread)) (:abort) ~id)))))))))
+         (finally (send-to-emacs `(:return ~(thread-name (current-thread)) (:abort ~(str t)) ~id)))))))))
 
 (defn- add-active-thread [thread]
   (dosync
