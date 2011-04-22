@@ -31,7 +31,8 @@
           (try
            (control-loop conn)
            (catch Exception e
-             ;; fail silently
+             (.println System/err "exception in control loop")
+             (.printStackTrace e)
              nil))
           (close-socket! (conn :socket)))
         read
@@ -49,11 +50,19 @@
      (ref-set (conn :control-thread) control)
      (ref-set (conn :read-thread) read))))
 
+(defn- load-cdt-with-dynamic-classloader []
+    ;; cdt requires a dynamic classloader for tools.jar add-classpath
+    ;;  lein swank doesn't seem to provide one.  Loading the backend
+    ;;  like this works around that problem.
+    (.start (Thread. #(do (use 'swank.core.cdt-backends)
+                          (eval '(cdt-backend-init))))))
+
 (defn start-server
   "Start the server and write the listen port number to
    PORT-FILE. This is the entry point for Emacs."
   [port-file & opts]
   (let [opts (apply hash-map opts)]
+    (load-cdt-with-dynamic-classloader)
     (setup-server (get opts :port 0)
                   (fn announce-port [port]
                     (announce-port-to-file port-file port)

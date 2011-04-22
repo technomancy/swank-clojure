@@ -1,14 +1,19 @@
 (ns swank.util.concurrent.thread
   (:use (swank util)))
 
+(def #^{:dynamic true} *new-thread-group* nil)
+
 (defn- gen-name []
   (name (gensym "Thread-")))
 
 (defn start-thread
   "Starts a thread that run the given function f"
   ([#^Runnable f]
-     (doto (Thread. f)
-       (.start))))
+     (let [t (if *new-thread-group*
+               (Thread. *new-thread-group* f)
+               (Thread. f))]
+       (.start t)
+       t)))
 
 (defmacro dothread [& body]
   `(start-thread (fn [] ~@body)))
