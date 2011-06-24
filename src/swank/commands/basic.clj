@@ -185,7 +185,14 @@
 (defn- maybe-resolve-sym [symbol-name]
   (try
     (ns-resolve (maybe-ns *current-package*) (symbol symbol-name))
-    (catch ClassNotFoundException e nil)))
+    (catch ClassNotFoundException e nil)
+    ;; in clojure 1.3 a RuntimeException is being thrown
+    (catch RuntimeException e
+      (if (= (type (.getCause e))
+             ClassNotFoundException)
+        nil
+        ;; re-throw anything that is not a ClassNotFoundException
+        (throw e)))))
 
 (defn- maybe-resolve-ns [sym-name]
   (let [sym (symbol sym-name)]
