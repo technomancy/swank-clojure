@@ -26,22 +26,25 @@
   (format "%x" (BigInteger. 1 (.digest (MessageDigest/getInstance "SHA1")
                                        (-> file io/resource slurp .getBytes)))))
 
-(defn loader [file]
-  (let [feature (second (re-find #".*/(.*?).el$" file))
-        checksum (subs (hex-digest file) 0 8)
-        elisp-source (format "%s/.emacs.d/swank/%s-%s.el"
-                             (System/getProperty "user.home")
-                             feature checksum)
-        elisp (.replaceAll elisp-source "\\.el$" "")]
-    (.mkdirs (.getParentFile (io/file elisp-source)))
-    (io/copy (.openStream (io/resource file)) (io/file elisp-source))
-    (with-open [w (io/writer elisp-source :append true)]
+(defn loader [resource]
+  (let [feature (second (re-find #".*/(.*?).el$" resource))
+        checksum (subs (hex-digest resource) 0 8)
+        basename (format "%s/.emacs.d/swank/%s-%s"
+                         (System/getProperty "user.home")
+                         feature checksum)
+        elisp (str basename ".el")
+        bytecode (str basename ".elc")
+        elisp-file (io/file elisp)]
+    (.mkdirs (.getParentFile elisp-file))
+    (with-open [r (.openStream (io/resource resource))]
+      (io/copy r elisp-file))
+    (with-open [w (io/writer elisp-file :append true)]
       (.write w (format "\n(provide '%s-%s)\n" feature checksum)))
     (format "(when (not (featurep '%s-%s))
-               (if (file-readable-p \"%s.elc\")
+               (if (file-readable-p \"%s\")
                  (load-file \"%s\")
                (byte-compile-file \"%s\" t)))"
-            feature checksum elisp elisp elisp-source)))
+            feature checksum bytecode bytecode elisp)))
 
 (defn payload-loaders []
   (for [file (elisp-payload-files)]
