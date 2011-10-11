@@ -24,7 +24,9 @@
                             (when-let [host (options :host)]
                               (if (instance? InetAddress host)
                                 host
-                                (InetAddress/getByName host))))))
+                                (if (= host "localhost")
+                                        (InetAddress/getByName nil)
+                                        (InetAddress/getByName host)))))))
 
 (defn start-server-socket!
   "Given a `server-socket' (java.net.ServerSocket), call
