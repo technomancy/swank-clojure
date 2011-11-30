@@ -169,13 +169,16 @@
 
 (defmethod emacs-inspect :class [#^Class obj]
   (let [meths (. obj getMethods)
-        fields (. obj getFields)]
+        fields (. obj getFields)
+        constructors (.getConstructors obj)]
     (concat
      `("Type: " (:value ~(class obj)) (:newline)
        "---" (:newline)
        "Fields: " (:newline))
      (mapcat (fn [f]
                `("  " (:value ~f) (:newline))) fields)
+     '("---" (:newline) "Constructors: " (:newline))
+     (mapcat (fn [c] `("  " (:value ~c) (:newline))) constructors)
      '("---" (:newline)
        "Methods: " (:newline))
      (mapcat (fn [m]
