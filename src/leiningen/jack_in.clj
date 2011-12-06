@@ -23,9 +23,8 @@
 (defn loader [resource]
   (let [feature (second (re-find #".*/(.*?).el$" resource))
         checksum (subs (hex-digest resource) 0 8)
-        basename (format "%s/.emacs.d/swank/%s-%s"
-                         (System/getProperty "user.home")
-                         feature checksum)
+        filename (format "%s-%s" feature checksum)
+        basename (.replaceAll (.getAbsolutePath (io/file (System/getProperty "user.home") ".emacs.d" "swank" filename)) "\\\\" "/")
         elisp (str basename ".el")
         bytecode (str basename ".elc")
         elisp-file (io/file elisp)]
