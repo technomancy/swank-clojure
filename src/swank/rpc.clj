@@ -107,13 +107,12 @@
   nil))
 
 (defmethod print-object clojure.lang.ISeq [o, #^Writer w]
-  (.write w "(")
-  (print-object (first o) w)
-  (doseq [item (rest o)]
-    (.write w " ")
-    (print-object item w))
-  (.write w ")"))
-
+  (if (empty? o)    (.write w "NIL")    (do     (.write w "(")
+     (print-object (first o) w)
+     (doseq [item (rest o)]
+            (.write w " ")
+            (print-object item w))
+     (.write w ")"))))
 (defn- write-form
   ([#^Writer writer message]
     (print-object message writer)))
