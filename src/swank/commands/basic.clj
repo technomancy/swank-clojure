@@ -400,8 +400,10 @@ that symbols accessible in the current namespace go first."
         jar-file (.getPath (.toURI (.getJarFileURL jar-connection)))]
     (list :zip (clean-windows-path jar-file) (.getEntryName jar-connection))))
 
+;; See http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=4466485 for why using URI not URL - basically want spaces not %20s
 (defn- slime-file-resource [#^java.net.URL resource]
-  (list :file (clean-windows-path (.getFile resource))))
+  (let [uri (java.net.URI. (str resource))]
+    (list :file (clean-windows-path (.getPath uri))))) ;; Changed from getFile to getPath to get filename and path with spaces instead of %20
 
 (defn- slime-find-resource [#^String file]
   (if-let [resource (.getResource (clojure.lang.RT/baseLoader) file)]
