@@ -2,9 +2,9 @@
   (:use (swank util commands)
         (swank.util hooks)
         (swank.util.concurrent thread)
-        (swank.core connection hooks threadmap))
-  (:require (swank.util.concurrent [mbox :as mb])
-            (clj-stacktrace core)))
+        (swank.core connection hooks threadmap)
+        (clj-stacktrace core repl))
+  (:require (swank.util.concurrent [mbox :as mb])))
 
 ;; Protocol version
 (defonce protocol-version (atom "20100404"))
@@ -118,14 +118,17 @@ values."
 (defn- debug-abort-exception? [t]
   (some #(identical? debug-abort-exception %) (exception-causes t)))
 
-(defn- exception-str [elem]
-  (let [parsed (clj-stacktrace.core/parse-trace-elem elem)]
-    (str (:file parsed) ":" (:line parsed) " " (:class parsed))))
+(defn- exception-str [width elem]
+  (pst-elem-str
+   false
+   (parse-trace-elem elem)
+   width))
 
 (defn exception-stacktrace [t]
-  (map #(list %1 %2 '(:restartable nil))
-       (iterate inc 0)
-       (map exception-str (.getStackTrace t))))
+  (let [width (find-source-width (parse-exception t))]
+    (map #(list %1 %2 '(:restartable nil))
+         (iterate inc 0)
+         (map #(exception-str width %) (.getStackTrace t)))))
 
 (defn debugger-condition-for-emacs []
   (list (or (.getMessage *current-exception*) "No message.")
