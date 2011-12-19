@@ -510,7 +510,9 @@ that symbols accessible in the current namespace go first."
   ((nth restart 2)))
 
 (defslimefn invoke-nth-restart-for-emacs [level n]
-  ((invoke-restart (*sldb-restarts* (nth (keys *sldb-restarts*) n)))))
+  (try
+    ((invoke-restart (*sldb-restarts* (nth (keys *sldb-restarts*) n))))
+    (catch IndexOutOfBoundsException e (throw debug-invalid-restart-exception))))
 
 (defslimefn throw-to-toplevel []
   (if-let [restart (*sldb-restarts* :quit)]

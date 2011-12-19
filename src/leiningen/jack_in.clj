@@ -51,8 +51,10 @@ This task is intended to be launched from Emacs using M-x clojure-jack-in,
 which is part of the clojure-mode library."
   [project port]
   (println ";;; Bootstrapping bundled version of SLIME; please wait...\n\n")
-  (println (string/join "\n" (payload-loaders)))
-  (println "(sleep-for 0.1)") ; TODO: remove
-  (println "(run-hooks 'slime-load-hook) ; on port" port)
-  (println ";;; Done bootstrapping.")
-  (swank project port "localhost" ":message" "\";;; proceed to jack in\""))
+  (let [loaders (string/join "\n" (payload-loaders))
+        colors? (.contains loaders "swank-colors")]
+    (println loaders)
+    (println "(sleep-for 0.1)") ; TODO: remove
+    (println "(run-hooks 'slime-load-hook) ; on port" port)
+    (println ";;; Done bootstrapping.")
+    (swank project port "localhost" ":colors?" (str colors?) ":message" "\";;; proceed to jack in\"")))

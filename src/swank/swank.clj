@@ -45,6 +45,8 @@
    PORT-FILE. This is the entry point for Emacs."
   [& opts]
   (let [opts (apply hash-map opts)]
+    (dosync
+      (ref-set *color-support?* (:colors? opts false)))
     (setup-server (get opts :port 0)
                   simple-announce
                   connection-serve
