@@ -50,6 +50,9 @@
      (.replace n ".class" ""))
    File/separator "."))
 
+(defn jar-entry-name [#^JarEntry entry]
+  (-> (File. (.getName entry)) (.getPath)))
+
 ;;; Path scanning
 
 (defmulti path-class-files
@@ -73,7 +76,7 @@
     (try
      (map (fn [fp] {:loc lp :file fp :name (class-or-ns-name fp)})
           (filter class-file?
-                  (map #(.getName #^JarEntry %)
+                  (map jar-entry-name
                        (enumeration-seq (.entries (JarFile. f))))))
      (catch Exception e []))))          ; fail gracefully if jar is unreadable
 

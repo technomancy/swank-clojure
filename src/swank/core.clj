@@ -1,8 +1,9 @@
 (ns swank.core
+  (:refer-clojure :exclude [next])
   (:use (swank util commands)
         (swank.util hooks)
         (swank.util.concurrent thread)
-        (swank.core connection hooks threadmap)
+        (swank.core connection hooks threadmap debugger-backends)
         (clj-stacktrace core repl))
   (:require (swank.util.concurrent [mbox :as mb])))
 
@@ -115,7 +116,7 @@ values."
 (defn- debug-quit-exception? [t]
   (some #(identical? debug-quit-exception %) (exception-causes t)))
 
-(defn- debug-continue-exception? [t]
+(defn debug-continue-exception? [t]
   (some #(identical? debug-continue-exception %) (exception-causes t)))
 
 (defn- debug-abort-exception? [t]
@@ -127,13 +128,13 @@ values."
 (defn- exception-str [width elem]
   (pst-elem-str @color-support? (parse-trace-elem elem) width))
 
-(defn exception-stacktrace [t]
+(defmethod exception-stacktrace :default [t]
   (let [width (find-source-width (parse-exception t))]
     (map #(list %1 %2 '(:restartable nil))
          (iterate inc 0)
          (map #(exception-str width %) (.getStackTrace t)))))
 
-(defn debugger-condition-for-emacs []
+(defmethod debugger-condition-for-emacs :default []
   (list (or (.getMessage *current-exception*) "No message.")
         (str "  [Thrown " (class *current-exception*) "]")
         nil))
@@ -168,7 +169,7 @@ values."
        (inc level))
       restarts)))
 
-(defn calculate-restarts [thrown]
+(defmethod calculate-restarts :default [thrown]
   (let [restarts [(make-restart :quit "QUIT" "Quit to the SLIME top level"
                                (fn [] (throw debug-quit-exception)))]
         restarts (add-restart-if
@@ -188,7 +189,7 @@ values."
 (defn format-restarts-for-emacs []
   (doall (map #(list (first (second %)) (second (second %))) *sldb-restarts*)))
 
-(defn build-backtrace [start end]
+(defmethod build-backtrace :default [start end]
   (doall (take (- end start) (drop start (exception-stacktrace *current-exception*)))))
 
 (defn build-debugger-info-for-emacs [start end]
@@ -213,7 +214,7 @@ values."
    (catch Throwable t
      (send-to-emacs
       `(:debug-return ~(current-thread) ~*sldb-level* ~sldb-stepping-p))
-     (if-not (debug-continue-exception? t)
+     (if-not (handled-exception? t)
        (throw t)))))
 
 (defn invoke-debugger
@@ -278,9 +279,13 @@ values."
       (do
         (send-to-emacs `(:return ~(thread-name (current-thread)) (:abort) ~id))
         (throw t))
-
+      ;;
       (debug-invalid-restart-exception? t)
-      (send-to-emacs `(:return ~(thread-name (current-thread)) (:ok "Restart index out of bounds") ~id))
+      (send-to-emacs `(:return ~(thread-name (current-thread))
+                               (:ok "Restart index out of bounds") ~id))
+      ;;
+      (debugger-exception? t)
+      (throw t)
 
       :else
       (do
@@ -301,17 +306,24 @@ values."
   (dosync
    (commute active-threads (fn [threads] (remove #(= % thread) threads)))))
 
+(def swank-worker-thread-name "Swank Worker Thread")
+(defonce swank-worker-thread-group
+  (ThreadGroup. swank-worker-thread-name))
+
 (defn spawn-worker-thread
   "Spawn an thread that blocks for a single command from the control
    thread, executes it, then terminates."
   ([conn]
-     (dothread-swank
-       (try
-        (add-active-thread (current-thread))
-        (thread-set-name "Swank Worker Thread")
-        (eval-from-control)
-        (finally
-         (remove-active-thread (current-thread)))))))
+     ;; binding is a signal to dbe's not to allow bp's on this thread
+     ;;  because it will hang swank
+     (binding [*new-thread-group* swank-worker-thread-group]
+         (dothread-swank
+          (try
+            (add-active-thread (current-thread))
+            (thread-set-name swank-worker-thread-name)
+            (eval-from-control)
+            (finally
+             (remove-active-thread (current-thread))))))))
 
 (defn spawn-repl-thread
   "Spawn an thread that sets itself as the current
@@ -360,6 +372,12 @@ values."
                thread (thread-for-evaluation thread conn)]
            (mb/send thread `(eval-for-emacs ~form-string ~package ~id)))
 
+         ;; handle events from the debugger backend
+         (= action :dbe-rex)
+         (let [[form-string thread] args
+               thread (thread-for-evaluation thread conn)]
+           (mb/send thread (read-string form-string)))
+
          (= action :return)
          (let [[thread & ret] args]
            (binding [*print-level* nil, *print-length* nil]
@@ -383,11 +401,7 @@ values."
 
          (= action :emacs-interrupt)
          (let [[thread & args] args]
-           (dosync
-            (cond
-             (and (true? thread) (seq @active-threads))
-             (.stop #^Thread (first @active-threads))
-              (= thread :repl-thread) (.stop #^Thread @(conn :repl-thread)))))
+           (handle-interrupt thread conn args))
          :else
          nil))))
 
@@ -400,3 +414,27 @@ values."
      (binding [*1 nil, *2 nil, *3 nil, *e nil]
        (with-connection conn
          (continuously (dispatch-event (mb/receive (current-thread)) conn))))))
+
+(defmethod eval-string-in-frame :default [expr n]
+  (if (and (zero? n) *current-env*)
+    (with-bindings *current-env*
+      (eval expr))))
+
+(defmethod swank-eval :default [form]
+           (eval (with-env-locals form)))
+
+(defmethod get-stack-trace :default [n]
+           (nth (.getStackTrace *current-exception*) n))
+
+(defmethod handled-exception? :default [t]
+           (debug-continue-exception? t))
+
+(defmethod debugger-exception? :default [t]
+           false)
+
+(defmethod handle-interrupt :default [thread conn args]
+           (dosync
+            (cond
+             (and (true? thread) (seq @active-threads))
+             (.stop #^Thread (first @active-threads))
+             (= thread :repl-thread) (.stop #^Thread @(conn :repl-thread)))))

@@ -5,6 +5,7 @@
         (swank.util string clojure)
         (swank.clj-contrib pprint macroexpand))
   (:require (swank.util [sys :as sys])
+            [swank.core.debugger-backends :as dbe]
             (swank.commands [xref :as xref]))
   (:import (java.io StringReader File)
            (java.util.zip ZipFile)
@@ -44,7 +45,7 @@
            (if (= form rdr)
              [value last-form]
              (recur (read rdr false rdr)
-                    (eval (with-env-locals form))
+                    (dbe/swank-eval form)
                     form)))))))
 
 (defn- compile-region
@@ -346,7 +347,8 @@ that symbols accessible in the current namespace go first."
              (apply str (take 240 (pr-str (when fname (cons fname args)) ))))
     (let [result (binding [*trace-level* (+ *trace-level* 1)] (apply f args))]
       (indent *trace-level*)
-      (println (str *trace-level* ": " fname " returned " (apply str (take 240 (pr-str result)))))
+      (println (str *trace-level* ": "
+                    fname " returned " (apply str (take 240 (pr-str result)))))
       result)))
 
 (defslimefn swank-toggle-trace [fname]
@@ -449,7 +451,9 @@ that symbols accessible in the current namespace go first."
                        (str ns-path File/separator (.getFileName frame))
                        (.getFileName frame))))
         path     (slime-find-file filename)]
-    (location-in-file path line)))
+    (if path
+      (location-in-file path line)
+      (list :error (format "%s - source not found." filename)))))
 
 (defn- namespace-to-filename [ns]
   (str (-> (str ns)
@@ -528,7 +532,7 @@ that symbols accessible in the current namespace go first."
 
 
 (defslimefn backtrace [start end]
-  (build-backtrace start end))
+  (dbe/build-backtrace start end))
 
 (defslimefn buffer-first-change [file-name] nil)
 
@@ -550,18 +554,17 @@ that symbols accessible in the current namespace go first."
   (build-debugger-info-for-emacs start end))
 
 (defslimefn eval-string-in-frame [expr n]
-  (if (and (zero? n) *current-env*)
-    (with-bindings *current-env*
-      (eval expr))))
+  (dbe/eval-string-in-frame expr n))
+
+(defslimefn eval-last-frame [expr]
+  (dbe/eval-last-frame expr))
 
 (defslimefn frame-source-location [n]
-  (source-location-for-frame
-   (nth (.getStackTrace *current-exception*) n)))
+  (source-location-for-frame (dbe/get-stack-trace n)))
 
 ;; Older versions of slime use this instead of the above.
 (defslimefn frame-source-location-for-emacs [n]
-  (source-location-for-frame
-   (nth (.getStackTrace *current-exception*) n)))
+  (source-location-for-frame (dbe/get-stack-trace n)))
 
 (defslimefn create-repl [target] '("user" "user"))
 

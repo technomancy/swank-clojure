@@ -38,7 +38,9 @@
 
    See also `write-swank-message'."
   ([#^java.io.Reader reader]
-     (let [len  (Integer/parseInt (read-chars reader 6 read-fail-exception) 16)
+     (let [;; replaceAll needed for apparent bug with Emacs 24
+           len-str (.replaceAll (read-chars reader 6 read-fail-exception) " " "0")
+           len  (Integer/parseInt len-str 16)
            msg  (read-chars reader len read-fail-exception)
            form (try
                   (read-string (fix-namespace msg))
