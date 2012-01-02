@@ -20,17 +20,15 @@
                 [:host host :port (Integer. port)
                  :repl-out-root true :block true]))))
 
-(defn- add-jdk-toolsjar-to-classpath
+(defn add-jdk-toolsjar-to-classpath
   "CDT requires the JDK's tools.jar and sa-jdi.jar. Add them to the classpath."
   [project]
-  (let [libdir (File. (File. (System/getProperty "java.home") "..") "lib")
-        f-exists? (fn [f] (.exists f))
-        extra-cp (filter f-exists? (map #(File. libdir %)
-                                        ["tools.jar" "sa-jdi.jar"]))
-        cp-key :extra-classpath-dirs]
-    (if (seq extra-cp)
-      (assoc project cp-key (apply conj (cp-key project) extra-cp))
-      project)))
+  (let [libdir (reduce #(File. %1 %2)
+                       [(System/getProperty "java.home") ".." "lib"])
+        extra-cp (filter #(.exists %)
+                         (map #(File. libdir %) ["tools.jar" "sa-jdi.jar"]))]
+    (update-in project [:extra-classpath-dirs]
+               #(if (seq extra-cp) (apply conj % extra-cp) %))))
 
 (defn swank
   "Launch swank server for Emacs to connect. Optionally takes PORT and HOST."
