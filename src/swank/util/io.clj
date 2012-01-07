@@ -7,7 +7,7 @@
 (defn read-chars
   ([rdr n] (read-chars rdr n false))
   ([#^Reader rdr n throw-exception]
-     (let [cbuf (make-array Character/TYPE n)]
+     (let [#^"[C" cbuf (make-array Character/TYPE n)]
        (loop [i 0]
          (let [size (.read rdr cbuf i (- n i))]
            (cond

@@ -583,7 +583,7 @@ that symbols accessible in the current namespace go first."
 
 (defn get-thread-list []
   (let [#^ThreadGroup rg (get-root-group (.getThreadGroup (Thread/currentThread)))
-        arr (make-array Thread (.activeCount rg))]
+        #^"[Ljava.lang.Thread;" arr (make-array Thread (.activeCount rg))]
     (.enumerate rg arr true)            ;needs type hint
     (seq arr)))
 

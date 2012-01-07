@@ -11,7 +11,7 @@
   "Starts a thread that run the given function f"
   ([#^Runnable f]
      (let [t (if *new-thread-group*
-               (Thread. *new-thread-group* f)
+               (Thread. #^ThreadGroup *new-thread-group* f)
                (Thread. f))]
        (.start t)
        t)))

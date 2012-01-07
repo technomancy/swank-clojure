@@ -1,6 +1,7 @@
 (ns swank.commands.inspector
   (:use (swank util core commands)
-        (swank.core connection)))
+        (swank.core connection))
+  (:import (java.lang.reflect Field)))
 
 ;;;; Inspector for basic clojure data structures
 
@@ -110,7 +111,7 @@
            (iterate inc 0)
            obj)))
 
-(defmethod emacs-inspect :array [obj]
+(defmethod emacs-inspect :array [#^"[Ljava.lang.Object;" obj]
   (concat
    (label-value-line*
     ("Class" (class obj))
@@ -149,15 +150,15 @@
            obj)))
 
 (defmethod emacs-inspect :default [obj]
-  (let [fields (. (class obj) getDeclaredFields)
-	names (map (memfn getName) fields)
-	get (fn [f]
-	      (try (.setAccessible f true)
-		   (catch java.lang.SecurityException e))
-	      (try (.get f obj)
-		   (catch java.lang.IllegalAccessException e
-		     "Access denied.")))
-	vals (map get fields)]
+  (let [#^"[Ljava.lang.reflect.Field;" fields (. (class obj) getDeclaredFields)
+        names (map #(.getName #^Field %) fields)
+        get (fn [#^Field f]
+              (try (.setAccessible f true)
+                   (catch java.lang.SecurityException e))
+              (try (.get f obj)
+                   (catch java.lang.IllegalAccessException e
+                     "Access denied.")))
+        vals (map get fields)]
     (concat
      `("Type: " (:value ~(class obj)) (:newline)
        "Value: " (:value ~obj) (:newline)
