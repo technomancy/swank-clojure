@@ -1,7 +1,7 @@
 (ns swank.commands.xref
   (:use clojure.walk swank.util)
   (:import (clojure.lang RT)
-           (java.io LineNumberReader InputStreamReader PushbackReader)))
+           (java.io LineNumberReader InputStreamReader Reader PushbackReader)))
 
 ;; Yoinked and modified from clojure.contrib.repl-utils.
 ;; Now takes a var instead of a sym in the current ns
@@ -17,7 +17,8 @@ Example: (get-source-from-var 'filter)"
             (dotimes [_ (dec (:line (meta v)))] (.readLine rdr))
             (let [text (StringBuilder.)
                   pbr (proxy [PushbackReader] [rdr]
-                        (read [] (let [i (proxy-super read)]
+                        (read [] (let [#^Reader this this
+                                       i (proxy-super read)]
                                    (.append text (char i))
                                    i)))]
               (read (PushbackReader. pbr))

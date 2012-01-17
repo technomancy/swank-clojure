@@ -3,3 +3,5 @@ lib/
 multi-lib/
 swank-clojure*jar
 pom.xml
+/.lein-failures
+/.lein-deps-sum

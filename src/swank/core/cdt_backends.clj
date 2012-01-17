@@ -3,11 +3,11 @@
   (:require [cdt.ui :as cdt]
             [swank.core.cdt-utils :as cutils]
             [swank.core :as core]
-            [swank.util.concurrent.thread :as st])
+            [swank.util.concurrent.thread :as st]
+            [clj-stacktrace repl core])
   (:use swank.core.debugger-backends
         [swank.commands :only [defslimefn]])
   (:import java.util.concurrent.TimeUnit))
-
 
 (defmethod swank-eval :cdt [form]
   (cdt/safe-reval (:thread @*debugger-env*)
@@ -23,10 +23,18 @@
           (select-keys @*debugger-env* [:thread :frame]))
   (nth (get-full-stack-trace) n))
 
+;; (defmethod exception-stacktrace :cdt [_]
+;;   (map #(list %1 %2 '(:restartable nil))
+;;        (iterate inc 0)
+;;        (map str (get-full-stack-trace))))
+
 (defmethod exception-stacktrace :cdt [_]
-  (map #(list %1 %2 '(:restartable nil))
-       (iterate inc 0)
-       (map str (get-full-stack-trace))))
+  (let [width 25   ;; @@ TODO: hard-coded for now as below does not work:
+        #_(clj-stacktrace.repl/find-source-width
+           (clj-stacktrace.core/parse-exception t))]
+    (map #(list %1 %2 '(:restartable nil))
+         (iterate inc 0)
+         (map #(core/exception-str width %) (get-full-stack-trace)))))
 
 (defmethod debugger-condition-for-emacs :cdt []
   (:env @*debugger-env*))
@@ -150,6 +158,10 @@
                  (cutils/get-non-system-threads)
                  (cutils/get-system-thread-groups) true))
 
+(defn display-msg [msg]
+  (doseq [f [cutils/display-background-msg println]]
+    (f msg)))
+
 (defmethod handle-interrupt :cdt [_ _ _]
   (.deleteEventRequests
    (.eventRequestManager (cdt/vm))
@@ -161,10 +173,9 @@
   (reset! cdt/catch-list {})
   (reset! cdt/bp-list {})
   (reset-last-viewed-source)
-  (doseq [f [cutils/display-background-msg println]]
-    (f "Clearing CDT event requests and continuing.")))
+  (display-msg "Clearing CDT event requests and continuing."))
 
-(defn cdt-backend-init []
+(defn cdt-backend-init [release]
   (try
     (cdt/cdt-attach-pid)
     (cdt/create-thread-start-request)
@@ -180,7 +191,7 @@
     (cdt/set-display-msg cutils/display-background-msg)
     (cutils/set-control-thread)
     (cutils/set-system-thread-groups)
-
+    (cutils/init-emacs-helper-functions)
     ;; this invocation of handle-interrupt is only needed to force the loading
     ;;  of the classes required by force-continue because inadvertently
     ;;  catching an exception which happens to be in the classloader can cause a
@@ -188,6 +199,6 @@
 
     (handle-interrupt :cdt nil nil)
     (deliver cdt-started-promise true)
+    (display-msg (str "Swank CDT release " release " started" ))
     (catch Exception e
-      (println "CDT startup failed " e))))
-
+      (println "CDT " release "startup failed: " e))))

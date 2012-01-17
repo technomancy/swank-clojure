@@ -18,53 +18,54 @@
 
 (defn log-event [format-string & args]
   (when log-events
-    (.write (or log-output *out*) (apply format format-string args))
-    (.flush (or log-output *out*))
+    (let [#^Writer out (or log-output *out*)]
+      (.write out #^String (apply format format-string args))
+      (.flush out))
     nil))
 
 ;; INPUT
 
 (defn- read-form
-   "Read a form that conforms to the swank rpc protocol"
+  "Read a form that conforms to the swank rpc protocol"
   ([#^Reader rdr]
-    (let [c (.read rdr)]
-      (condp = (char c)
-          \" (let [sb (StringBuilder.)]
-               (loop []
+     (let [c (.read rdr)]
+       (condp = (char c)
+         \" (let [sb (StringBuilder.)]
+              (loop []
                 (let [c (.read rdr)]
-                 (if (= c -1)
-                   (throw (java.io.EOFException. "Incomplete reading of quoted string."))
-                   (condp = (char c)
-                     \" (str sb)
-                     \\ (do (.append sb (char (.read rdr)))
-                            (recur))
-                    (do (.append sb (char c))
-                        (recur)))))))
-          \( (loop [result []]
-               (let [form (read-form rdr)]
-                     (let [c (.read rdr)]
-                       (if (= c -1)
-                         (throw (java.io.EOFException. "Incomplete reading of list."))
-                         (condp = (char c)
-                           \) (sequence (conj result form))
-                           \space (recur (conj result form)))))))
-          \' (list 'quote (read-form rdr))
-          (let [sb (StringBuilder.)]
-            (loop [c c]
-              (if (not= c -1)
-                (condp = (char c)
-                  \\ (do (.append sb (char (.read rdr)))
-                         (recur (.read rdr)))
-                  \space (.unread rdr c)
-                  \) (.unread rdr c)
-                  (do (.append sb (char c))
-                      (recur (.read rdr))))))
-            (let [str (str sb)]
-              (cond
-                (. Character isDigit c) (Integer/parseInt str)
-                (= "nil" str) nil
-                (= "t" str) true
-                :else (symbol str))))))))
+                  (if (= c -1)
+                    (throw (java.io.EOFException. "Incomplete reading of quoted string."))
+                    (condp = (char c)
+                      \" (str sb)
+                      \\ (do (.append sb (char (.read rdr)))
+                             (recur))
+                      (do (.append sb (char c))
+                          (recur)))))))
+         \( (loop [result []]
+              (let [form (read-form rdr)]
+                (let [c (.read rdr)]
+                  (if (= c -1)
+                    (throw (java.io.EOFException. "Incomplete reading of list."))
+                    (condp = (char c)
+                      \) (sequence (conj result form))
+                      \space (recur (conj result form)))))))
+         \' (list 'quote (read-form rdr))
+         (let [sb (StringBuilder.)]
+           (loop [c c]
+             (if (not= c -1)
+               (condp = (char c)
+                 \\ (do (.append sb (char (.read rdr)))
+                        (recur (.read rdr)))
+                 \space (.unread #^PushbackReader rdr c)
+                 \) (.unread #^PushbackReader rdr c)
+                 (do (.append sb (char c))
+                     (recur (.read rdr))))))
+           (let [str (str sb)]
+             (cond
+              (. Character isDigit c) (Integer/parseInt str)
+              (= "nil" str) nil
+              (= "t" str) true
+              :else (symbol str))))))))
 
 (defn- read-packet
   ([#^Reader reader]
@@ -99,12 +100,12 @@
   (let [char-escape-string {\" "\\\""
                             \\  "\\\\"}]
     (do (.append w \")
-      (dotimes [n (count s)]
-        (let [c (.charAt s n)
-              e (char-escape-string c)]
-          (if e (.write w e) (.append w c))))
-      (.append w \"))
-  nil))
+        (dotimes [n (count s)]
+          (let [c (.charAt s n)
+                e (char-escape-string c)]
+            (if e (.write w #^String e) (.append w c))))
+        (.append w \"))
+    nil))
 
 (defmethod print-object clojure.lang.ISeq [o, #^Writer w]
   (.write w "(")
@@ -119,7 +120,7 @@
     (print-object message writer)))
 
 (defn- write-packet
-  ([#^Writer writer str]
+  ([#^Writer writer #^String str]
    (let [len (.length str)]
     (doto writer
           (.write (format "%06x" len))

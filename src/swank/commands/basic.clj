@@ -5,11 +5,12 @@
         (swank.util string clojure)
         (swank.clj-contrib pprint macroexpand))
   (:require (swank.util [sys :as sys])
-            (swank.commands [xref :as xref])
-            [swank.core.debugger-backends :as dbe])
+            [swank.core.debugger-backends :as dbe]
+            (swank.commands [xref :as xref]))
   (:import (java.io StringReader File)
            (java.util.zip ZipFile)
-           (clojure.lang LineNumberingPushbackReader)))
+           (java.lang.ThreadGroup)
+           (clojure.lang LineNumberingPushbackReader Symbol)))
 
 ;;;; Connection
 
@@ -55,7 +56,7 @@
                           ((StringReader. string)))
                  rdr (proxy [LineNumberingPushbackReader] (rdr1)
                        (getLineNumber [] (+ line (.getLineNumber rdr1) -1)))]
-       (clojure.lang.Compiler/load rdr file (.getName (File. file))))))
+       (clojure.lang.Compiler/load rdr file (.getName (File. #^String file))))))
 
 
 (defslimefn interactive-eval-region [string]
@@ -169,7 +170,8 @@
 
 (defn- line-at-position [file position]
   (try
-    (with-open [f (java.io.LineNumberReader. (java.io.FileReader. file))]
+    (with-open [f (java.io.LineNumberReader. (java.io.FileReader.
+                                              #^String file))]
       (.skip f position)
       (.getLineNumber f))
     (catch Exception e 1)))
@@ -348,13 +350,16 @@ that symbols accessible in the current namespace go first."
     (print "  ")))
 
 (defn- trace-fn-call [sym f args]
-  (let [fname (symbol (str (.name (.ns sym)) "/" (.sym sym)))]
+  (let [fname (symbol (str (namespace sym) "/" (name sym)))
+        ;; what is the point of this?
+        ]
     (indent *trace-level*)
     (println (str *trace-level* ":")
              (apply str (take 240 (pr-str (when fname (cons fname args)) ))))
     (let [result (binding [*trace-level* (+ *trace-level* 1)] (apply f args))]
       (indent *trace-level*)
-      (println (str *trace-level* ": " fname " returned " (apply str (take 240 (pr-str result)))))
+      (println (str *trace-level* ": "
+                    fname " returned " (apply str (take 240 (pr-str result)))))
       result)))
 
 (defslimefn swank-toggle-trace [fname]
@@ -374,7 +379,7 @@ that symbols accessible in the current namespace go first."
 
 (defslimefn untrace-all []
   (doseq [sym (keys traced-fn-map)]
-    (swank-toggle-trace (.sym sym))))
+    (swank-toggle-trace (symbol sym))))
 
 ;;;; Source Locations
 (comment
@@ -424,7 +429,7 @@ that symbols accessible in the current namespace go first."
 
 (defn- classname-to-path [class-name]
   (namespace-to-path
-   (symbol (.replace class-name \_ \-))))
+   (symbol (.replace #^String class-name \_ \-))))
 
 
 (defn- location-in-file [path line]
@@ -492,8 +497,8 @@ that symbols accessible in the current namespace go first."
   (letfn [(xref-lisp [sym] ; see find-definitions-for-emacs
                      (if-let [meta (meta sym)]
                        (source-location-for-meta meta "method")
-                       (location-not-found (.getName sym) "method")))]
-    (let [methods (try (. class getMethods)
+                       (location-not-found (name sym) "method")))]
+    (let [methods (try (. #^java.lang.Class class getMethods)
                        (catch java.lang.IllegalArgumentException e nil)
                        (catch java.lang.NullPointerException e nil))]
       (map xref-lisp methods))))
@@ -520,7 +525,9 @@ that symbols accessible in the current namespace go first."
   ((nth restart 2)))
 
 (defslimefn invoke-nth-restart-for-emacs [level n]
-  ((invoke-restart (*sldb-restarts* (nth (keys *sldb-restarts*) n)))))
+  (try
+    ((invoke-restart (*sldb-restarts* (nth (keys *sldb-restarts*) n))))
+    (catch IndexOutOfBoundsException e (throw debug-invalid-restart-exception))))
 
 (defslimefn throw-to-toplevel []
   (if-let [restart (*sldb-restarts* :quit)]
@@ -557,17 +564,18 @@ that symbols accessible in the current namespace go first."
 (defslimefn debugger-info-for-emacs [start end]
   (build-debugger-info-for-emacs start end))
 
-(defslimefn eval-string-in-frame [st n]
-  (dbe/eval-string-in-frame st n))
+(defslimefn eval-string-in-frame [expr n]
+  (dbe/eval-string-in-frame expr n))
+
+(defslimefn eval-last-frame [expr]
+  (dbe/eval-last-frame expr))
 
 (defslimefn frame-source-location [n]
-  (source-location-for-frame
-   (dbe/get-stack-trace n)))
+  (source-location-for-frame (dbe/get-stack-trace n)))
 
 ;; Older versions of slime use this instead of the above.
 (defslimefn frame-source-location-for-emacs [n]
-  (source-location-for-frame
-      (dbe/get-stack-trace n)))
+  (source-location-for-frame (dbe/get-stack-trace n)))
 
 (defslimefn create-repl [target] '("user" "user"))
 
@@ -580,10 +588,10 @@ that symbols accessible in the current namespace go first."
     (recur parent)
     tg))
 
-(defn- get-thread-list []
-  (let [rg (get-root-group (.getThreadGroup (Thread/currentThread)))
-        arr (make-array Thread (.activeCount rg))]
-    (.enumerate rg arr true)
+(defn get-thread-list []
+  (let [#^ThreadGroup rg (get-root-group (.getThreadGroup (Thread/currentThread)))
+        #^"[Ljava.lang.Thread;" arr (make-array Thread (.activeCount rg))]
+    (.enumerate rg arr true)            ;needs type hint
     (seq arr)))
 
 (defn- extract-info [#^Thread t]
@@ -601,12 +609,9 @@ corresponding attribute values per thread."
 ;;; TODO: Find a better way, as Thread.stop is deprecated
 (defslimefn kill-nth-thread [index]
   (when index
-    (when-let [thread (nth @thread-list index nil)]
+    (when-let [#^Thread thread (nth @thread-list index nil)]
       (println "Thread: " thread)
       (.stop thread))))
 
 (defslimefn quit-thread-browser []
   (reset! thread-list []))
-
-(defslimefn eval-last-frame [st]
-  (dbe/eval-last-frame st))

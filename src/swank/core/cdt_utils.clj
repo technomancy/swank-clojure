@@ -5,6 +5,54 @@
             [swank.core :as core])
   (:use swank.core.debugger-backends))
 
+
+;; you can't use backquotes in these elisp funcs because they go through
+;; the Clojure reader
+
+(def elisp-helper-functions
+     '((progn
+        ; unused "&optional _" because "()" gets converted to "(nil)"
+        (defun sldb-line-bp (&optional _)
+          "Set breakpoint on current buffer line."
+          (interactive)
+          (slime-eval-async (list 'swank:sldb-line-bp
+                              ,(buffer-file-name) ,(line-number-at-pos))))
+
+        (defun slime-force-continue (&optional _)
+          "force swank server to continue"
+          (interactive)
+          (slime-dispatch-event '(:emacs-interrupt :cdt)))
+
+        (defun slime-get-thing-at-point (&optional _)
+          (interactive)
+          (let ((thing (thing-at-point 'sexp)))
+            (set-text-properties 0 (length thing) nil thing)
+            thing))
+
+        (defun slime-eval-last-frame (&optional _)
+          "Eval thing at point in the context of the last frame viewed"
+          (interactive)
+          (slime-eval-with-transcript (list 'swank:eval-last-frame
+                                        ,(slime-get-thing-at-point))))
+
+        (define-prefix-command 'cdt-map)
+        (define-key cdt-map (kbd "C-b") 'sldb-line-bp)
+        (define-key cdt-map (kbd "C-g") 'slime-force-continue)
+        (define-key cdt-map (kbd "C-p") 'slime-eval-last-frame)
+
+        (eval-after-load 'slime
+                         '(progn
+                           (define-key slime-mode-map (kbd "C-c C-x") 'cdt-map)
+                           (define-key sldb-mode-map (kbd "C-c C-x") 'cdt-map)))
+
+        (eval-after-load 'slime-repl
+                         '(define-key slime-repl-mode-map
+                            (kbd "C-c C-x") 'cdt-map))
+
+        (eval-after-load 'cc-mode
+                         '(define-key java-mode-map
+                            (kbd "C-c C-x") 'cdt-map)))))
+
 (defn- match-name [thread-name]
   #(re-find (re-pattern (str "^" thread-name "$")) (.getName %)))
 
@@ -99,6 +147,10 @@
 (defn display-background-msg [s]
   (mb/send (get-control-thread)
            `(:eval-no-wait "slime-message" ("%s" ~s))))
+
+(defn init-emacs-helper-functions []
+  (mb/send (get-control-thread)
+           `(:eval-no-wait "eval" ~elisp-helper-functions)))
 
 (defmacro make-debugger-exception [exception-name]
   (let [full-str-name (str "debug-" exception-name "-exception")
