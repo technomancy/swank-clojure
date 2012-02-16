@@ -1,7 +1,8 @@
 (ns leiningen.jack-in
   (:require [clojure.java.io :as io]
             [clojure.string :as string]
-            [leiningen.swank :as swank])
+            [leiningen.swank :as swank]
+            [swank.util.sys :as util])
   (:import (java.security MessageDigest)))
 
 (def ^:private payloads-file-name "swank_elisp_payloads.clj")
@@ -23,10 +24,11 @@
   (let [feature (second (re-find #".*/(.*?).el$" resource))
         checksum (subs (hex-digest resource) 0 8)
         filename (format "%s-%s" feature checksum)
-        basename (-> (System/getProperty "user.home")
-                     (io/file ".emacs.d" "swank" filename)
-                     (.getAbsolutePath)
-                     (.replaceAll "\\\\" "/"))
+        basename (util/universal-path
+                  (-> (util/preferred-user-home-path)
+                      (io/file ".emacs.d" "swank" filename)
+                      (.getAbsolutePath)
+                      (.replaceAll "\\\\" "/")))
         elisp (str basename ".el")
         bytecode (str basename ".elc")
         elisp-file (io/file elisp)]
