@@ -14,7 +14,7 @@
 (defn #^java.lang.Process cmd [p]
   (.. Runtime getRuntime (exec (str p))))
 
-(defn cmdout [o]
+(defn cmdout [^Process o]
   (let [r (BufferedReader.
            (InputStreamReader. (.getInputStream o)))]
     (line-seq r)))

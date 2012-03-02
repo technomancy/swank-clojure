@@ -1,5 +1,5 @@
 (ns swank.swank
-  (:use [swank.core]
+  (:use [swank core util]
         [swank.core connection server]
         [swank.util.concurrent thread]
         [swank.util.net sockets]
@@ -12,6 +12,8 @@
            [java.io File])
   (:gen-class))
 
+(def current-server (atom nil))
+
 (defn ignore-protocol-version [version]
   (reset! protocol-version version))
 
@@ -22,21 +24,23 @@
           (try
            (control-loop conn)
            (catch Exception e
-             (.println System/err "exception in control loop")
-             (.printStackTrace e)
+             (when-not @shutting-down?
+               (.println System/err "exception in control loop")
+               (.printStackTrace e))
              nil))
           (close-socket! (conn :socket)))
         read
         (dothread-swank
-          (thread-set-name "Read Loop Thread")
+          (thread-set-name "Swank Read Loop Thread")
           (try
            (read-loop conn control)
            (catch Exception e
              ;; This could be put somewhere better
-             (.println System/err "exception in read loop")
-             (.printStackTrace e)
-             (.interrupt control)
-             (dosync (alter connections (partial remove #{conn}))))))]
+             (when-not @shutting-down?
+               (.println System/err "exception in read loop")
+               (.printStackTrace e)
+               (.interrupt control)
+               (dosync (alter connections (partial remove #{conn})))))))]
     (dosync
      (ref-set (conn :control-thread) control)
      (ref-set (conn :read-thread) read))))
@@ -52,17 +56,38 @@
   "Start the server and write the listen port number to
    PORT-FILE. This is the entry point for Emacs."
   [& opts]
-  (let [opts (apply hash-map opts)]
-    (reset! color-support? (:colors? opts false))
-    (when (:load-cdt-on-startup opts)
-      (load-cdt-with-dynamic-classloader))
-    (setup-server (get opts :port 0)
-                  simple-announce
-                  connection-serve
-                  opts)
-    (when (:block opts)
-      (doseq [#^Thread t (get-thread-list)]
-         (.join t)))))
+  (if @current-server
+    (println System/err "Swank server already running")
+    (do
+      (reset! shutting-down? false)
+      (let [opts (apply hash-map opts)]
+        (reset! color-support? (:colors? opts false))
+        (reset! exit-on-quit? (:exit-on-quit opts true))
+        (when (:load-cdt-on-startup opts)
+          (load-cdt-with-dynamic-classloader))
+        (reset! current-server
+                (setup-server (get opts :port 0)
+                              simple-announce
+                              connection-serve
+                              opts))
+        (when (:block opts)
+          (doseq [#^Thread t (get-thread-list)]
+            (.join t)))))))
+
+(defn stop-server
+  "Stop the currently running server, shutdown its threads, and release the port."
+  []
+  (if @current-server
+    (do
+      (reset! shutting-down? true)
+      (doseq [c @connections]
+        (doseq [t [:control-thread :read-thread :repl-thread]]
+          (when-let [^Thread thread @(c t)]
+            (.interrupt thread))))
+      (close-server-socket! @current-server)
+      (dosync (ref-set connections []))
+      (reset! current-server nil))
+    (println System/err "Swank server not running")))
 
 (defn start-repl
   "Start the server wrapped in a repl. Use this to embed swank in your code."

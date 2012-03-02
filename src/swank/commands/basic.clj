@@ -30,7 +30,8 @@
          :version ~(deref protocol-version)))
 
 (defslimefn quit-lisp []
-  (System/exit 0))
+  (and @exit-on-quit?
+       (System/exit 0)))
 
 (defslimefn toggle-debug-on-swank-error []
   (alter-var-root #'swank.core/debug-swank-clojure not))

@@ -21,6 +21,8 @@
 
 (def color-support? (atom false))
 
+(def exit-on-quit? (atom true))
+
 (def sldb-stepping-p nil)
 (def sldb-initial-frames 10)
 (def #^{:dynamic true} #^{:doc "The current level of recursive debugging."}

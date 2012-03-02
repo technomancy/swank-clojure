@@ -2,6 +2,8 @@
   (:import (java.io StringReader)
            (clojure.lang LineNumberingPushbackReader)))
 
+(def shutting-down? (atom false))
+
 (defmacro one-of?
   "Short circuiting value comparison."
   ([val & possible]
@@ -64,7 +66,7 @@
            (apply ~f args#))))))
 
 (defmacro continuously [& body]
-  `(loop [] ~@body (recur)))
+  `(loop [] ~@body (when-not @shutting-down? (recur))))
 
 (defmacro failing-gracefully [& body]
   `(try
