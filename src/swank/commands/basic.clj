@@ -6,6 +6,7 @@
         (swank.clj-contrib pprint macroexpand))
   (:require (swank.util [sys :as sys])
             [swank.core.debugger-backends :as dbe]
+            [clojure.tools.namespace :as ns]
             [clojure.string]
             )
   (:import
@@ -131,6 +132,15 @@
              :references nil
              :short-message ~(.toString t)))
 
+(defn destroy-ns
+  [ns]
+  (doseq [sym (keys (ns-refers ns))]
+    (ns-unmap ns sym))
+  (doseq [a (keys (ns-aliases ns))]
+    (ns-unalias ns a))
+  (doseq [a (keys (ns-publics ns))]
+    (ns-unmap ns a)))
+
 (defn- compile-file-for-emacs*
   "Compiles a file for emacs. Because clojure doesn't compile, this is
    simple an alias for load file w/ timing and messages. This function
@@ -160,12 +170,16 @@
 
 (defslimefn load-file [file-name]
   (let [libs-ref @(resolve 'clojure.core/*loaded-libs*)
-        libs @libs-ref]
+        libs @libs-ref
+        ns-form (ns/read-file-ns-decl (java.io.File. file-name))
+        ns (second ns-form)]
     (try
+      (when ns
+        (destroy-ns ns))
       (dosync (ref-set libs-ref #{}))
       (pr-str (clojure.core/load-file file-name))
-         (finally
-          (dosync (alter libs-ref into libs))))))
+      (finally
+       (dosync (alter libs-ref into libs))))))
 
 (defn- line-at-position [file position]
   (try
