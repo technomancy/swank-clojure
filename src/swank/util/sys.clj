@@ -1,4 +1,5 @@
-(ns swank.util.sys)
+(ns swank.util.sys
+  (:import (java.io BufferedReader InputStreamReader)))
 
 (defn get-pid
   "Returns the PID of the JVM. This is largely a hack and may or may
