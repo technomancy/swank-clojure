@@ -17,7 +17,7 @@ using [Leiningen](http://github.com/technomancy/leiningen):
 * From an Emacs buffer inside a project, invoke `M-x clojure-jack-in`
 
 If you are still using Leiningen 1.6.2 or earlier, you will need to do
-`lein plugin install swank-clojure 1.4.1` instead.
+`lein plugin install swank-clojure 1.4.2` instead.
 
 That's all it takes; there are no extra install steps beyond
 `clojure-mode` on the Emacs side and the `swank-clojure` plugin on the
@@ -62,7 +62,7 @@ If you just want a standalone swank server with no third-party
 libraries, you can use the shell wrapper that Leiningen installs for
 you:
 
-    $ lein plugin install swank-clojure 1.4.0
+    $ lein plugin install swank-clojure 1.4.2
     $ ~/.lein/bin/swank-clojure
 
     M-x slime-connect
@@ -85,7 +85,7 @@ If you're using Maven, add this to your pom.xml under the
     <dependency>
       <groupId>swank-clojure</groupId>
       <artifactId>swank-clojure</artifactId>
-      <version>1.3.4</version>
+      <version>1.4.2</version>
     </dependency>
 ```
 
