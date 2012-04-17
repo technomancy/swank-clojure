@@ -16,7 +16,7 @@ using [Leiningen](http://github.com/technomancy/leiningen):
   `project.clj` or your user profile.
 * From an Emacs buffer inside a project, invoke `M-x clojure-jack-in`
 
-If you are still using Leiningen 1.6.2 or earlier, you will need to do
+If you are still using Leiningen 1.x, you will need to do
 `lein plugin install swank-clojure 1.4.2` instead.
 
 That's all it takes; there are no extra install steps beyond
