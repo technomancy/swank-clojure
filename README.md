@@ -21,8 +21,8 @@ If you are still using Leiningen 1.x, you will need to do
 
 That's all it takes; there are no extra install steps beyond
 `clojure-mode` on the Emacs side and the `swank-clojure` plugin on the
-Leiningen side. In particular be sure you don't have any other
-versions of Slime installed; see "Troubleshooting" below.
+Leiningen side. In particular, be sure you **don't have any other
+versions of SLIME loaded**; see "Troubleshooting" below.
 
 ## SLIME Commands
 
