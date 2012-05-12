@@ -210,7 +210,9 @@
   (try
     (ns-resolve (maybe-ns *current-package*) (symbol symbol-name))
     (catch ClassNotFoundException e nil)
-    (catch RuntimeException e nil)))
+    (catch RuntimeException e (if (instance? ClassNotFoundException (.getCause e))
+                                nil
+                                (throw e)))))
 
 (defn- maybe-resolve-ns
   "Returns a Namespace or nil"
