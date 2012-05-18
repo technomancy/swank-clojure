@@ -7,7 +7,7 @@
         [clojure.main :only [repl]])
   (:require [swank.commands]
             [swank.commands basic indent completion
-             contrib inspector])
+             contrib inspector cljs]) ;; FIXME: I'll remove this and make it more explicit later
   (:import [java.lang System Thread]
            [java.io File])
   (:gen-class))
