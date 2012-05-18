@@ -1,6 +1,7 @@
 (ns swank.commands.inspector
   (:use (swank util core commands)
-        (swank.core connection)))
+        (swank.core connection))
+  (:import (java.lang.reflect Field)))
 
 ;;;; Inspector for basic clojure data structures
 
@@ -22,6 +23,17 @@
    (ref-set inspectee-actions [])
    (ref-set inspector-stack nil)
    (ref-set inspector-history [])))
+
+(defn indexed-values [obj]
+  (apply concat
+         (map-indexed (fn [idx val]
+                        `(~(str "  " idx ". ") (:value ~val) (:newline)))
+                      obj)))
+
+(defn named-values [obj]
+  (apply concat
+         (for [[key val] obj]
+           `("  " (:value ~key) " = " (:value ~val) (:newline)))))
 
 (defn inspectee-title [obj]
   (cond
@@ -79,48 +91,37 @@
      (.isArray (class obj)) :array)))
 
 (defn inspect-meta-information [obj]
-  (when (> (count (meta obj)) 0)
+  (when (seq (meta obj))
     (concat
      '("Meta Information: " (:newline))
-     (mapcat (fn [[key val]]
-               `("  " (:value ~key) " = " (:value ~val) (:newline)))
-             (meta obj)))))
+     (named-values (meta obj)))))
 
 (defmethod emacs-inspect :map [obj]
   (concat
    (label-value-line*
     ("Class" (class obj))
     ("Count" (count obj)))
-   '("Contents: " (:newline))
    (inspect-meta-information obj)
-   (mapcat (fn [[key val]]
-             `("  " (:value ~key) " = " (:value ~val)
-               (:newline)))
-           obj)))
+   '("Contents: " (:newline))
+   (named-values obj)))
 
 (defmethod emacs-inspect :vector [obj]
   (concat
    (label-value-line*
     ("Class" (class obj))
     ("Count" (count obj)))
-   '("Contents: " (:newline))
    (inspect-meta-information obj)
-   (mapcat (fn [i val]
-             `(~(str "  " i ". ") (:value ~val) (:newline)))
-           (iterate inc 0)
-           obj)))
+   '("Contents: " (:newline))
+   (indexed-values obj)))
 
-(defmethod emacs-inspect :array [obj]
+(defmethod emacs-inspect :array [#^"[Ljava.lang.Object;" obj]
   (concat
    (label-value-line*
     ("Class" (class obj))
     ("Count" (alength obj))
     ("Component Type" (.getComponentType (class obj))))
    '("Contents: " (:newline))
-   (mapcat (fn [i val]
-	     `(~(str "  " i ". ") (:value ~val) (:newline)))
-	   (iterate inc 0)
-	   obj)))
+   (indexed-values obj)))
 
 (defmethod emacs-inspect :var [#^clojure.lang.Var obj]
   (concat
@@ -134,30 +135,27 @@
   (concat
    (label-value-line*
     ("Class" (class obj)))
-   (inspect-meta-information obj)
    (list (str "Value: " (pr-str obj)))))
 
 (defmethod emacs-inspect :seq [obj]
   (concat
    (label-value-line*
     ("Class" (class obj)))
-   '("Contents: " (:newline))
    (inspect-meta-information obj)
-   (mapcat (fn [i val]
-             `(~(str "   " i ". ") (:value ~val) (:newline)))
-           (iterate inc 0)
-           obj)))
+   '("Contents: " (:newline))
+   (indexed-values obj)))
+
 
 (defmethod emacs-inspect :default [obj]
-  (let [fields (. (class obj) getDeclaredFields)
-	names (map (memfn getName) fields)
-	get (fn [f]
-	      (try (.setAccessible f true)
-		   (catch java.lang.SecurityException e))
-	      (try (.get f obj)
-		   (catch java.lang.IllegalAccessException e
-		     "Access denied.")))
-	vals (map get fields)]
+  (let [#^"[Ljava.lang.reflect.Field;" fields (. (class obj) getDeclaredFields)
+        names (map #(.getName #^Field %) fields)
+        get (fn [#^Field f]
+              (try (.setAccessible f true)
+                   (catch java.lang.SecurityException e))
+              (try (.get f obj)
+                   (catch java.lang.IllegalAccessException e
+                     "Access denied.")))
+        vals (map get fields)]
     (concat
      `("Type: " (:value ~(class obj)) (:newline)
        "Value: " (:value ~obj) (:newline)
@@ -165,21 +163,24 @@
        "Fields: " (:newline))
      (mapcat
       (fn [name val]
-	`(~(str "  " name ": ") (:value ~val) (:newline))) names vals))))
+        `(~(str "  " name ": ") (:value ~val) (:newline))) names vals))))
+
+(defn- inspect-class-section [obj section]
+  (let [method (symbol (str ".get" (name section)))
+        elements (eval (list method obj))]
+    (if (seq elements)
+      `(~(name section) ": " (:newline)
+        ~@(mapcat (fn [f] `("  " (:value ~f) (:newline))) elements)))))
 
 (defmethod emacs-inspect :class [#^Class obj]
-  (let [meths (. obj getMethods)
-        fields (. obj getFields)]
-    (concat
-     `("Type: " (:value ~(class obj)) (:newline)
-       "---" (:newline)
-       "Fields: " (:newline))
-     (mapcat (fn [f]
-               `("  " (:value ~f) (:newline))) fields)
-     '("---" (:newline)
-       "Methods: " (:newline))
-     (mapcat (fn [m]
-               `("  " (:value ~m) (:newline))) meths))))
+  (apply concat (interpose ['(:newline) "--- "]
+                           (cons `("Type: " (:value ~(class obj)) (:newline))
+                                 (for [section [:Interfaces :Constructors
+                                                :Fields :Methods]
+                                       :let [elements (inspect-class-section
+                                                       obj section)]
+                                       :when (seq elements)]
+                                   elements)))))
 
 (defmethod emacs-inspect :aref [#^clojure.lang.ARef obj]
   `("Type: " (:value ~(class obj)) (:newline)

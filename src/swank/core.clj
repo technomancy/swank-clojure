@@ -3,9 +3,12 @@
   (:use (swank util commands)
         (swank.util hooks)
         (swank.util.concurrent thread)
-        (swank.core connection hooks threadmap
-                    debugger-backends))
-  (:require (swank.util.concurrent [mbox :as mb])))
+        (swank.core connection hooks threadmap debugger-backends))
+  (:require (swank.util.concurrent [mbox :as mb])
+            (clj-stacktrace core repl))
+  (:use [swank.util.clj-stacktrace-compat
+         :only [pst-elem-str find-source-width]])
+  (:import (java.io BufferedReader)))
 
 ;; Protocol version
 (defonce protocol-version (atom "20100404"))
@@ -15,6 +18,10 @@
 
 ;; current emacs eval id
 (def #^{:dynamic true} *pending-continuations* '())
+
+(def color-support? (atom false))
+
+(def exit-on-quit? (atom true))
 
 (def sldb-stepping-p nil)
 (def sldb-initial-frames 10)
@@ -57,6 +64,7 @@
 (defonce debug-quit-exception (Exception. "Debug quit"))
 (defonce debug-continue-exception (Exception. "Debug continue"))
 (defonce debug-abort-exception (Exception. "Debug abort"))
+(defonce debug-invalid-restart-exception (Exception. "Invalid restart"))
 
 (def #^{:dynamic true} #^Throwable *current-exception* nil)
 
@@ -119,13 +127,22 @@ values."
 (defn- debug-abort-exception? [t]
   (some #(identical? debug-abort-exception %) (exception-causes t)))
 
+(defn- debug-invalid-restart-exception? [t]
+  (some #(identical? debug-invalid-restart-exception %) (exception-causes t)))
+
+(defn exception-str [width elem]
+  (pst-elem-str
+   @color-support? (clj-stacktrace.core/parse-trace-elem elem) width))
+
 (defmethod exception-stacktrace :default [t]
-  (map #(list %1 %2 '(:restartable nil))
-       (iterate inc 0)
-       (map str (.getStackTrace t))))
+  (let [width (find-source-width
+               (clj-stacktrace.core/parse-exception t))]
+    (map #(list %1 %2 '(:restartable nil))
+         (iterate inc 0)
+         (map #(exception-str width %) (.getStackTrace #^Throwable t)))))
 
 (defmethod debugger-condition-for-emacs :default []
-  (list (or (.getMessage *current-exception*) "No message.")
+  (list (or (.getMessage #^Throwable *current-exception*) "No message.")
         (str "  [Thrown " (class *current-exception*) "]")
         nil))
 
@@ -138,7 +155,7 @@ values."
     restarts))
 
 (declare sldb-debug)
-(defn cause-restart-for [thrown depth]
+(defn cause-restart-for [#^Throwable thrown depth]
   (make-restart
    (keyword (str "cause" depth))
    (str "CAUSE" depth)
@@ -148,7 +165,7 @@ values."
         " [Thrown " (class thrown) "]")
    (partial sldb-debug nil thrown *pending-continuations*)))
 
-(defn add-cause-restarts [restarts thrown]
+(defn add-cause-restarts [restarts #^Throwable thrown]
   (loop [restarts restarts
          cause (.getCause thrown)
          level 1]
@@ -159,9 +176,9 @@ values."
        (inc level))
       restarts)))
 
-(defmethod calculate-restarts :default [thrown]
+(defmethod calculate-restarts :default [#^Throwable thrown]
   (let [restarts [(make-restart :quit "QUIT" "Quit to the SLIME top level"
-                               (fn [] (throw debug-quit-exception)))]
+                                (fn [] (throw debug-quit-exception)))]
         restarts (add-restart-if
                   (pos? *sldb-level*)
                   restarts
@@ -217,7 +234,7 @@ values."
 
 (defn sldb-debug [locals thrown id]
   (try
-   (invoke-debugger nil thrown id)
+   (invoke-debugger locals thrown id)
    (catch Throwable t
      (when (and (pos? *sldb-level*)
                 (not (debug-abort-exception? t)))
@@ -269,19 +286,25 @@ values."
       (do
         (send-to-emacs `(:return ~(thread-name (current-thread)) (:abort) ~id))
         (throw t))
-
+      ;;
+      (debug-invalid-restart-exception? t)
+      (send-to-emacs `(:return ~(thread-name (current-thread))
+                               (:ok "Restart index out of bounds") ~id))
+      ;;
       (debugger-exception? t)
       (throw t)
+
       :else
       (do
         (set! *e t)
         (try
-         (sldb-debug
-          nil
-          (if debug-swank-clojure t (or (.getCause t) t))
-          id)
-         ;; reply with abort
-         (finally (send-to-emacs `(:return ~(thread-name (current-thread)) (:abort) ~id)))))))))
+          (sldb-debug
+           nil
+           (if debug-swank-clojure t (or (.getCause t) t))
+           id)
+          ;; reply with abort
+          (finally (send-to-emacs
+                    `(:return ~(thread-name (current-thread)) (:abort) ~id)))))))))
 
 (defn- add-active-thread [thread]
   (dosync
@@ -339,7 +362,101 @@ values."
       (= id :repl-thread) (find-or-spawn-repl-thread conn)
       :else (find-thread id))))
 
+
+;;; slime proto :emacs-return support and the swank commands
+;;; that depend on it: :eval :read-from-minibuffer :y-or-n-p :read-string
+
+(defonce emacs-return-promises (atom {}))
+
+(defn- create-emacs-return-promise [thread tag]
+  (let [p (promise)]
+    (swap! emacs-return-promises
+           (fn [promise-map]
+             (assoc promise-map [thread tag] p)))
+    p))
+
+(defn- clear-emacs-return-promise [thread tag]
+  (swap! emacs-return-promises
+         (fn [promise-map] (dissoc promise-map [thread tag]))))
+
+(defn- deliver-emacs-return-promise [thread tag val]
+  (let [p (@emacs-return-promises [thread tag])]
+    (if p
+      (deliver p val))))
+
+(defn- send-slime-command-to-emacs-and-wait [slime-command & args]
+  (assert (#{:eval :read-from-minibuffer
+             :y-or-n-p :read-string}
+           slime-command))
+  (let [thread (thread-name (current-thread))
+        tag (str (java.util.UUID/randomUUID))
+        p (create-emacs-return-promise thread tag)]
+    (send-to-emacs `(~slime-command ~thread ~tag ~@args))
+    (let [retval @p]
+      (clear-emacs-return-promise thread tag)
+      retval)))
+
+(defn eval-in-emacs
+  "Sends an elisp `formstring` to slime for evaluation and blocks
+  until that the result of the eval is available.
+
+  Unlike `eval-in-emacs-async`, this function unwraps the slime-proto
+  return value and cleans up the promise used .
+
+  NOTE: you must (setq slime-enable-evaluate-in-emacs t) on the Emacs
+  side before calling this function."
+
+  [formstring]
+
+  (let [retval (send-slime-command-to-emacs-and-wait :eval formstring)]
+    (case (first retval)
+      :ok (second retval)
+      :abort (throw (Exception. "Emacs eval abort")))))
+
+(defn eval-in-emacs-async
+  "Sends an elisp `formstring` to slime for evaluation and immediately
+  returns a promise that the result of the eval will be delivered to
+  eventually.
+
+  The value delivered to the promise is either (:ok retval)
+  or (:abort) if there was any error.
+
+  The `thread` argument should be the thread name or id. The `tag`
+  argument is an arbitrary string identifier used to address the
+  return value from emacs to the correct promise. UUID's are a good
+  option.
+
+  Callers of this function are responsible for calling
+  (clear-emacs-return-promise thread tag) after they have retrieved
+  the return value from the promise.
+
+  NOTE: you must (setq slime-enable-evaluate-in-emacs t) on the Emacs
+  side before calling this function."
+
+  [formstring thread tag]
+  (let [p (create-emacs-return-promise thread tag)]
+    (send-to-emacs `(:eval ~thread ~tag ~formstring))
+    p))
+
+(defn read-line-from-emacs []
+  (send-slime-command-to-emacs-and-wait :read-string))
+
+(defn read-from-emacs-minibuffer [prompt & [initial-value]]
+  (send-slime-command-to-emacs-and-wait :read-from-minibuffer prompt initial-value))
+
+(defmacro with-read-line-support
+  "Rebind *in* to a proxy that dispatches .readLine to Emacs,
+   so `(read-line)` will work within slime sessions.
+
+   Note, .read / (read), etc will not work."
+  [& body]
+  `(binding [*in* (proxy [BufferedReader] [*in*]
+                    (readLine []
+                      (swank.core/read-line-from-emacs)))]
+     ~@body))
+
 ;; Handle control
+
 (defn read-loop
   "A loop that reads from the socket (will block when no message
    available) and dispatches the message to the control thread."
@@ -348,10 +465,10 @@ values."
        (continuously (mb/send control (read-from-connection conn))))))
 
 (defn dispatch-event
-   "Dispatches/executes an event in the control thread's mailbox queue."
-   ([ev conn]
-      (let [[action & args] ev]
-        (cond
+  "Dispatches/executes an event in the control thread's mailbox queue."
+  ([ev conn]
+     (let [[action & args] ev]
+       (cond
          (= action :emacs-rex)
          (let [[form-string package thread id] args
                thread (thread-for-evaluation thread conn)]
@@ -372,12 +489,19 @@ values."
                   :presentation-start :presentation-end
                   :new-package :new-features :ed :percent-apply
                   :indentation-update
-                  :eval-no-wait :background-message :inspect)
+                  :eval :eval-no-wait :background-message :inspect
+                  :read-from-minibuffer :y-or-n-p)
          (binding [*print-level* nil, *print-length* nil]
            (write-to-connection conn ev))
 
          (= action :write-string)
          (write-to-connection conn ev)
+
+         (= action :read-string)
+         (write-to-connection conn ev)
+
+         (one-of? action :emacs-return :emacs-return-string)
+         (apply deliver-emacs-return-promise args)  ; args = [thread tag val]
 
          (one-of? action
                   :debug :debug-condition :debug-activate :debug-return)
@@ -400,26 +524,28 @@ values."
        (with-connection conn
          (continuously (dispatch-event (mb/receive (current-thread)) conn))))))
 
+;;; default implementations of some core multimethods
 (defmethod eval-string-in-frame :default [expr n]
   (if (and (zero? n) *current-env*)
     (with-bindings *current-env*
       (eval expr))))
 
 (defmethod swank-eval :default [form]
-           (eval (with-env-locals form)))
+  (eval (with-env-locals form)))
 
 (defmethod get-stack-trace :default [n]
-           (nth (.getStackTrace *current-exception*) n))
+  (nth (.getStackTrace #^Throwable *current-exception*) n))
 
 (defmethod handled-exception? :default [t]
-           (debug-continue-exception? t))
+  (debug-continue-exception? t))
 
 (defmethod debugger-exception? :default [t]
-           false)
+  false)
 
 (defmethod handle-interrupt :default [thread conn args]
-           (dosync
-            (cond
-             (and (true? thread) (seq @active-threads))
-             (.stop #^Thread (first @active-threads))
-             (= thread :repl-thread) (.stop #^Thread @(conn :repl-thread)))))
+  (dosync
+   (cond
+     (and (true? thread) (seq @active-threads))
+     (.stop #^Thread (first @active-threads))
+
+     (= thread :repl-thread) (.stop #^Thread @(conn :repl-thread)))))

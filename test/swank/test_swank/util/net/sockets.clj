@@ -5,7 +5,7 @@
         swank.util.net.sockets))
 
 (deftest making-server
-  (are [x] (with-open [socket x]
+  (are [x] (with-open [#^ServerSocket socket x]
              (instance? ServerSocket x))
        (make-server-socket)
        (make-server-socket {:backlog 10})

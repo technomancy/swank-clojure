@@ -1,56 +1,51 @@
-;;;; swank-clojure.clj --- Swank server for Clojure
-;;;
-;;; Copyright (C) 2008 Jeffrey Chu
-;;;
-;;; This file is licensed under the terms of the GNU General Public
-;;; License as distributed with Emacs (press C-h C-c to view it).
-;;;
-;;; See README file for more information about installation
-;;;
-
 (ns swank.swank
-  (:use [swank.core]
+  (:use [swank core util]
         [swank.core connection server]
         [swank.util.concurrent thread]
         [swank.util.net sockets]
+        [swank.commands.basic :only [get-thread-list]]
         [clojure.main :only [repl]])
   (:require [swank.commands]
             [swank.commands basic indent completion
              contrib inspector])
-  (:import [java.lang System]
+  (:import [java.lang System Thread]
            [java.io File])
   (:gen-class))
+
+(def current-server (atom nil))
 
 (defn ignore-protocol-version [version]
   (reset! protocol-version version))
 
 (defn- connection-serve [conn]
-  (let [control
+  (let [#^Thread control
         (dothread-swank
           (thread-set-name "Swank Control Thread")
           (try
            (control-loop conn)
            (catch Exception e
-             (.println System/err "exception in control loop")
-             (.printStackTrace e)
+             (when-not @shutting-down?
+               (.println System/err "exception in control loop")
+               (.printStackTrace e))
              nil))
           (close-socket! (conn :socket)))
         read
         (dothread-swank
-          (thread-set-name "Read Loop Thread")
+          (thread-set-name "Swank Read Loop Thread")
           (try
            (read-loop conn control)
            (catch Exception e
              ;; This could be put somewhere better
-             (.println System/err "exception in read loop")
-             (.printStackTrace e)
-             (.interrupt control)
-             (dosync (alter connections (partial remove #{conn}))))))]
+             (when-not @shutting-down?
+               (.println System/err "exception in read loop")
+               (.printStackTrace e)
+               (.interrupt control)
+               (dosync (alter connections (partial remove #{conn})))))))]
     (dosync
      (ref-set (conn :control-thread) control)
      (ref-set (conn :read-thread) read))))
 
-(defn- load-cdt-with-dynamic-classloader []
+(defn load-cdt-with-dynamic-classloader []
     ;; cdt requires a dynamic classloader for tools.jar add-classpath
     ;;  lein swank doesn't seem to provide one.  Loading the backend
     ;;  like this works around that problem.
@@ -60,42 +55,56 @@
 (defn start-server
   "Start the server and write the listen port number to
    PORT-FILE. This is the entry point for Emacs."
-  [port-file & opts]
-  (let [opts (apply hash-map opts)]
-    (load-cdt-with-dynamic-classloader)
-    (setup-server (get opts :port 0)
-                  (fn announce-port [port]
-                    (announce-port-to-file port-file port)
-                    (simple-announce port))
-                  connection-serve
-                  opts)))
+  [& opts]
+  (if @current-server
+    (println System/err "Swank server already running")
+    (do
+      (reset! shutting-down? false)
+      (let [opts (apply hash-map opts)]
+        (reset! color-support? (:colors? opts false))
+        (reset! exit-on-quit? (:exit-on-quit opts true))
+        (when (:load-cdt-on-startup opts)
+          (load-cdt-with-dynamic-classloader))
+        (reset! current-server
+                (setup-server (get opts :port 0)
+                              simple-announce
+                              connection-serve
+                              opts))
+        (when (:block opts)
+          (doseq [#^Thread t (get-thread-list)]
+            (.join t)))))))
 
-(def #^{:private true} encodings-map
-  {"UTF-8" "utf-8-unix"
-   })
-
-(defn- get-system-encoding []
-  (when-let [enc-name (.name (java.nio.charset.Charset/defaultCharset))]
-    (encodings-map enc-name)))
+(defn stop-server
+  "Stop the currently running server, shutdown its threads, and release the port."
+  []
+  (if @current-server
+    (do
+      (reset! shutting-down? true)
+      (doseq [c @connections]
+        (doseq [t [:control-thread :read-thread :repl-thread]]
+          (when-let [^Thread thread @(c t)]
+            (.interrupt thread))))
+      (close-server-socket! @current-server)
+      (dosync (ref-set connections []))
+      (reset! current-server nil))
+    (println System/err "Swank server not running")))
 
 (defn start-repl
   "Start the server wrapped in a repl. Use this to embed swank in your code."
   ([port & opts]
      (let [stop (atom false)
-           opts (merge {:port (Integer. port)
-                        :encoding (or (System/getProperty "swank.encoding")
-                                      (get-system-encoding)
-                                      "iso-latin-1-unix")}
-                       (apply hash-map opts))]
+           port (if (string? port) (Integer/parseInt port) (int port))
+           opts (assoc (apply hash-map opts) :port port)]
        (repl :read (fn [rprompt rexit]
                      (if @stop rexit
                          (do (reset! stop true)
-                             `(start-server (-> "java.io.tmpdir"
-                                                (System/getProperty)
-                                                (File. "slime-port.txt")
-                                                (.getCanonicalPath))
-                                            ~@(apply concat opts)))))
+                             `(start-server ~@(apply concat opts)))))
              :need-prompt (constantly false))))
-  ([] (start-repl 4005)))
+  ([] (start-repl (or (System/getenv "PORT") 4005))))
 
-(def -main start-repl)
+(defn -main [port & opts]
+  (apply start-server
+         (for [a (concat [":port" port] opts)]
+           (cond (re-find #"^\d+$" a) (Integer/parseInt a)
+                 (re-find #"^:\w+$" a) (keyword (subs a 1))
+                 :else a))))

@@ -1,5 +1,8 @@
 classes/
 lib/
 multi-lib/
-swank-clojure*jar
+*jar
 pom.xml
+.lein-failures
+.lein-deps-sum
+/lein-swank/.lein-plugins/checksum

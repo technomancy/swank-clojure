@@ -4,7 +4,8 @@
         (swank.util.concurrent thread)
         (swank.util.net sockets)
         (swank.core connection protocol))
-  (:import (java.io File FileReader BufferedReader InputStreamReader OutputStreamWriter)
+  (:import (java.io File FileReader BufferedReader PrintWriter
+                    InputStreamReader OutputStreamWriter)
            (java.net Socket)))
 
 ;; The swank.core.server is the layer above swank.util.net.sockets
@@ -24,12 +25,24 @@
 
    See also: `accept-authenticated-connection'"
   ([] (failing-gracefully
-        (let [slime-secret-file (File. (str (user-home-path) File/separator ".slime-secret"))]
+        (let [slime-secret-file (File.
+                                 (str (user-home-path) File/separator ".slime-secret"))]
           (when (and (.isFile slime-secret-file) (.canRead slime-secret-file))
             (with-open [secret (BufferedReader. (FileReader. slime-secret-file))]
               (.readLine secret)))))))
 
-(defn- accept-authenticated-connection ;; rename to authenticate-socket, takes in a connection
+(defn make-output-redirection
+  ([conn & slime-output-target]
+     (let [slime-output-target (if slime-output-target
+                                 (first slime-output-target))]
+       (call-on-flush-stream
+        #(with-connection conn
+           (send-to-emacs `(:write-string ~% ~slime-output-target)))))
+     )
+  {:tag java.io.StringWriter})
+
+;; rename to authenticate-socket, takes in a connection
+(defn- accept-authenticated-connection
   "Accepts and returns new connection if it is from an authenticated
    machine. Otherwise, return nil.
 
@@ -40,18 +53,21 @@
 
    See also: `slime-secret'"
   ([#^Socket socket opts]
-     (returning [conn (make-connection socket (get opts :encoding default-encoding))]
+     (returning [conn (make-connection socket (or (:encoding opts)
+                                                  (System/getProperty
+                                                   "swank.encoding"
+                                                   "utf-8-unix")))]
+                (when (:repl-out-root opts)
+                  (alter-var-root #'*out* (constantly
+                                           (PrintWriter.
+                                            (make-output-redirection conn))))
+                  (alter-var-root #'*err* (constantly
+                                           (PrintWriter.
+                                            (make-output-redirection conn)))))
        (if-let [secret (slime-secret)]
          (when-not (= (read-from-connection conn) secret)
            (close-socket! socket))
          conn))))
-
-(defn- make-output-redirection
-  ([conn]
-     (call-on-flush-stream
-      #(with-connection conn
-         (send-to-emacs `(:write-string ~%)))))
-  {:tag java.io.StringWriter})
 
 (defn- socket-serve [connection-serve socket opts]
   (with-connection (accept-authenticated-connection socket opts)
@@ -74,7 +90,7 @@
   ([server connection-serve options]
      (start-server-socket! server connection-serve)
      (when-let [announce (options :announce)]
-       (announce (.getLocalPort server)))
+       (announce options))
      server))
 
 (defn setup-server
@@ -87,16 +103,8 @@
                         :host    (opts :host "localhost")
                         :backlog (opts :backlog 0)})
    #(socket-serve connection-serve % opts)
-   {:announce announce-fn}))
+   (merge {:announce announce-fn} opts)))
 
 ;; Announcement functions
-(defn simple-announce [port]
-  (println "Connection opened on local port " port))
-
-(defn announce-port-to-file
-  "Writes the given port number into a file."
-  ([#^String file port]
-     (with-open [out (new java.io.FileWriter file)]
-       (doto out
-         (.write (str port "\n"))
-         (.flush)))))
+(defn simple-announce [{:keys [message host port] :as opts}]
+  (println (or message (format "Connection opened on %s port %s." host port))))

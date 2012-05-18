@@ -1,5 +1,5 @@
 (ns swank.test-swank.commands.basic
-  (:refer-clojure :exclude [load-file])
+  (:refer-clojure :exclude [load-file print-doc])
   (:use swank.commands.basic :reload-all)
   (:use clojure.test))
 
