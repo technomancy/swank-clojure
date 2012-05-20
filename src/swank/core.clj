@@ -5,7 +5,10 @@
         (swank.util.concurrent thread)
         (swank.core connection hooks threadmap debugger-backends))
   (:require (swank.util.concurrent [mbox :as mb])
-            (clj-stacktrace core repl)))
+            (clj-stacktrace core repl))
+  (:use [swank.util.clj-stacktrace-compat
+         :only [pst-elem-str find-source-width]])
+  (:import (java.io BufferedReader)))
 
 ;; Protocol version
 (defonce protocol-version (atom "20100404"))
@@ -17,6 +20,8 @@
 (def #^{:dynamic true} *pending-continuations* '())
 
 (def color-support? (atom false))
+
+(def exit-on-quit? (atom true))
 
 (def sldb-stepping-p nil)
 (def sldb-initial-frames 10)
@@ -126,11 +131,11 @@ values."
   (some #(identical? debug-invalid-restart-exception %) (exception-causes t)))
 
 (defn exception-str [width elem]
-  (clj-stacktrace.repl/pst-elem-str
+  (pst-elem-str
    @color-support? (clj-stacktrace.core/parse-trace-elem elem) width))
 
 (defmethod exception-stacktrace :default [t]
-  (let [width (clj-stacktrace.repl/find-source-width
+  (let [width (find-source-width
                (clj-stacktrace.core/parse-exception t))]
     (map #(list %1 %2 '(:restartable nil))
          (iterate inc 0)
@@ -436,10 +441,18 @@ values."
 (defn read-line-from-emacs []
   (send-slime-command-to-emacs-and-wait :read-string))
 
+(defn read-from-emacs-minibuffer [prompt & [initial-value]]
+  (send-slime-command-to-emacs-and-wait :read-from-minibuffer prompt initial-value))
+
 (defmacro with-read-line-support
-  "Rebind `read-line` to work within slime."
+  "Rebind *in* to a proxy that dispatches .readLine to Emacs,
+   so `(read-line)` will work within slime sessions.
+
+   Note, .read / (read), etc will not work."
   [& body]
-  `(binding [read-line read-line-from-emacs]
+  `(binding [*in* (proxy [BufferedReader] [*in*]
+                    (readLine []
+                      (swank.core/read-line-from-emacs)))]
      ~@body))
 
 ;; Handle control
@@ -511,26 +524,28 @@ values."
        (with-connection conn
          (continuously (dispatch-event (mb/receive (current-thread)) conn))))))
 
+;;; default implementations of some core multimethods
 (defmethod eval-string-in-frame :default [expr n]
   (if (and (zero? n) *current-env*)
     (with-bindings *current-env*
       (eval expr))))
 
 (defmethod swank-eval :default [form]
-           (eval (with-env-locals form)))
+  (eval (with-env-locals form)))
 
 (defmethod get-stack-trace :default [n]
   (nth (.getStackTrace #^Throwable *current-exception*) n))
 
 (defmethod handled-exception? :default [t]
-           (debug-continue-exception? t))
+  (debug-continue-exception? t))
 
 (defmethod debugger-exception? :default [t]
-           false)
+  false)
 
 (defmethod handle-interrupt :default [thread conn args]
-           (dosync
-            (cond
-             (and (true? thread) (seq @active-threads))
-             (.stop #^Thread (first @active-threads))
-             (= thread :repl-thread) (.stop #^Thread @(conn :repl-thread)))))
+  (dosync
+   (cond
+     (and (true? thread) (seq @active-threads))
+     (.stop #^Thread (first @active-threads))
+
+     (= thread :repl-thread) (.stop #^Thread @(conn :repl-thread)))))

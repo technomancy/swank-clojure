@@ -25,16 +25,20 @@
 
    See also: `accept-authenticated-connection'"
   ([] (failing-gracefully
-        (let [slime-secret-file (File. (str (user-home-path) File/separator ".slime-secret"))]
+        (let [slime-secret-file (File.
+                                 (str (user-home-path) File/separator ".slime-secret"))]
           (when (and (.isFile slime-secret-file) (.canRead slime-secret-file))
             (with-open [secret (BufferedReader. (FileReader. slime-secret-file))]
               (.readLine secret)))))))
 
-(defn- make-output-redirection
-  ([conn]
-     (call-on-flush-stream
-      #(with-connection conn
-         (send-to-emacs `(:write-string ~%)))))
+(defn make-output-redirection
+  ([conn & slime-output-target]
+     (let [slime-output-target (if slime-output-target
+                                 (first slime-output-target))]
+       (call-on-flush-stream
+        #(with-connection conn
+           (send-to-emacs `(:write-string ~% ~slime-output-target)))))
+     )
   {:tag java.io.StringWriter})
 
 ;; rename to authenticate-socket, takes in a connection
@@ -104,4 +108,3 @@
 ;; Announcement functions
 (defn simple-announce [{:keys [message host port] :as opts}]
   (println (or message (format "Connection opened on %s port %s." host port))))
-

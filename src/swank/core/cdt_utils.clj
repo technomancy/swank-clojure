@@ -90,8 +90,8 @@
 (defn get-system-thread-groups [] @system-thread-groups)
 
 (def system-thread-names
-     #{#"^CDT Event Handler$" #"^Swank Control Thread$" #"^Read Loop Thread$"
-       #"^Socket Server \[\d*\]$"})
+     #{#"^CDT Event Handler$" #"^Swank Control Thread$" #"^Swank Read Loop Thread$"
+       #"^Swank Socket Server \[\d*\]$"})
 
 (defn system-thread? [t]
   (some #(re-find % (.name t)) system-thread-names))

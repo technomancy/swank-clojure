@@ -36,10 +36,14 @@
    server to close."
   ([server-socket handle-socket]
      (dothread-keeping-clj nil
-       (thread-set-name (str "Socket Server [" (thread-id) "]"))
+       (thread-set-name (str "Swank Socket Server [" (thread-id) "]"))
        (with-open [#^ServerSocket server server-socket]
          (while (not (.isClosed server))
-           (handle-socket (.accept server)))))))
+           (try
+             (handle-socket (.accept server))
+             (catch SocketException e
+               (when-not @shutting-down?
+                 (throw e)))))))))
 
 (defn close-socket!
   "Cleanly shutdown and close a java.net.Socket. This will not affect

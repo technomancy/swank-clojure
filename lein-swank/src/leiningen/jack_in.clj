@@ -1,14 +1,13 @@
 (ns leiningen.jack-in
-  (:use [leiningen.compile :only [eval-in-project]]
-        [leiningen.swank :only [swank]])
   (:require [clojure.java.io :as io]
-            [clojure.string :as string])
-  (:import (java.util.jar JarFile)
-           (java.security MessageDigest)))
+            [clojure.string :as string]
+            [leiningen.swank :as swank])
+  (:import (java.security MessageDigest)))
 
-(def payloads-file-name "swank_elisp_payloads.clj")
+(def ^:private payloads-file-name "swank_elisp_payloads.clj")
 
 (defn elisp-payload-files []
+  ;; TODO: this may not work with lein2 plugins
   (->> (.getResources (.getContextClassLoader (Thread/currentThread))
                       payloads-file-name)
        (enumeration-seq)
@@ -24,7 +23,8 @@
   (let [feature (second (re-find #".*/(.*?).el$" resource))
         checksum (subs (hex-digest resource) 0 8)
         filename (format "%s-%s" feature checksum)
-        basename (-> (System/getProperty "user.home")
+        basename (-> (or (System/getenv "HOME")
+                         (System/getProperty "user.home"))
                      (io/file ".emacs.d" "swank" filename)
                      (.getAbsolutePath)
                      (.replaceAll "\\\\" "/"))
@@ -43,10 +43,6 @@
                (byte-compile-file \"%s\" t)))"
             feature checksum bytecode bytecode elisp)))
 
-(defn payload-loaders []
-  (for [file (elisp-payload-files)]
-    (loader file)))
-
 (defn jack-in
   "Jack in to a Clojure SLIME session from Emacs.
 
@@ -54,11 +50,11 @@ This task is intended to be launched from Emacs using M-x clojure-jack-in,
 which is part of the clojure-mode library."
   [project port]
   (println ";;; Bootstrapping bundled version of SLIME; please wait...\n\n")
-  (let [loaders (string/join "\n" (payload-loaders))
+  (let [loaders (string/join "\n" (map loader (elisp-payload-files)))
         colors? (.contains loaders "slime-frame-colors")]
     (println loaders)
     (println "(sleep-for 0.1)") ; TODO: remove
     (println "(run-hooks 'slime-load-hook) ; on port" port)
     (println ";;; Done bootstrapping.")
-    (swank project port "localhost" ":colors?" (str colors?)
-           ":message" "\";;; proceed to jack in\"")))
+    (swank/swank project port "localhost" ":colors?" (str colors?)
+                 ":message" "\";;; proceed to jack in\"")))

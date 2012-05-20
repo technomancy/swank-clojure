@@ -1,5 +1,19 @@
 # Swank Clojure NEWS -- history of user-visible changes
 
+## 1.5.0 / ???
+
+* Spun lein-swank off into its own project for `:plugins` compatibility.
+* Add support for clearing existing namespace with load-file.
+
+## 1.4.1 / 2012-03-23
+
+* Add stop-server functionality.
+
+## 1.4.0 / 2012-01-27
+
+* Added CDT debugger.
+* Support jacking into remote machines over tramp.
+
 ## 1.3.4 / 2011-12-27
 
 * Integrate clj-stacktrace with slime debugger buffers.

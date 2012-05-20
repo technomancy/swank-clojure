@@ -12,13 +12,17 @@ using [Leiningen](http://github.com/technomancy/leiningen):
 * Install `clojure-mode` either from
   [Marmalade](http://marmalade-repo.org) or from
   [git](http://github.com/technomancy/clojure-mode).
-* `lein plugin install swank-clojure 1.3.4`
+* Add `[lein-swank "1.4.4"]` to the `:plugins` section of either
+  `project.clj` or your user profile.
 * From an Emacs buffer inside a project, invoke `M-x clojure-jack-in`
+
+If you are still using Leiningen 1.x, you will need to do
+`lein plugin install swank-clojure 1.4.2` instead.
 
 That's all it takes; there are no extra install steps beyond
 `clojure-mode` on the Emacs side and the `swank-clojure` plugin on the
-Leiningen side. In particular be sure you don't have any other
-versions of Slime installed; see "Troubleshooting" below.
+Leiningen side. In particular, be sure you **don't have any other
+versions of SLIME loaded**; see "Troubleshooting" below.
 
 ## SLIME Commands
 
@@ -58,7 +62,7 @@ If you just want a standalone swank server with no third-party
 libraries, you can use the shell wrapper that Leiningen installs for
 you:
 
-    $ lein plugin install swank-clojure 1.3.4
+    $ lein plugin install swank-clojure 1.4.2
     $ ~/.lein/bin/swank-clojure
 
     M-x slime-connect
@@ -81,7 +85,7 @@ If you're using Maven, add this to your pom.xml under the
     <dependency>
       <groupId>swank-clojure</groupId>
       <artifactId>swank-clojure</artifactId>
-      <version>1.3.4</version>
+      <version>1.4.2</version>
     </dependency>
 ```
 
@@ -152,6 +156,7 @@ To get syntax highlighting in your repl buffer, use this elisp:
 ```lisp
 (add-hook 'slime-repl-mode-hook
           (defun clojure-mode-slime-font-lock ()
+            (require 'clojure-mode)
             (let (font-lock-mode)
               (clojure-mode-font-lock-setup))))
 ```
@@ -179,7 +184,7 @@ this problem. Judicious use of `:exclusions` make it work:
 ```
 
 Since swank-clojure 1.3.4, having versions of clj-stacktrace older
-than 0.2.4 in your project or user-level plugins will cause `Unable to
+than 0.2.1 in your project or user-level plugins will cause `Unable to
 resolve symbol: pst-elem-str` errors. Keep in mind that user-level
 plugins in `~/.lein/plugins` are uberjars in Leiningen 1.x, so it's
 possible that one of your plugins (such as `lein-difftest` before
@@ -214,6 +219,35 @@ your config:
 ```lisp
 (setenv "PATH" (shell-command-to-string "echo $PATH"))
 ```
+
+When using `clojure-jack-in`, standard out for the Leiningen process
+appears in the `*swank*` buffer, but the `*out*` var gets rebound to a
+writer that is able to redirect to the `*slime-repl*` buffer. So in
+general most Clojure output will show up in your repl buffer just
+fine, but for output coming from Java libraries you may need to check
+the `*swank*` buffer.
+
+## Cygwin
+
+If you are running Emacs from Cygwin, you'll need to add the following to your 
+.emacs.d/init.el file:
+
+```lisp
+(defun cyg-slime-to-lisp-translation (filename)
+  (replace-regexp-in-string "\n" "" 
+   (shell-command-to-string
+     (format "cygpath.exe --windows %s" filename))))
+
+(defun cyg-lisp-to-slime-translation (filename)
+  (replace-regexp-in-string "\n" "" (shell-command-to-string
+     (format "cygpath.exe --unix %s filename"))))
+
+(setq slime-to-lisp-filename-function #'cyg-slime-to-lisp-translation)
+(setq lisp-to-slime-filename-function #'cyg-lisp-to-slime-translation)
+``` 
+
+This is required because the jvm runs as a normal Windows exe and uses
+Windows style paths rather than Cygwin unix style paths.
 
 ## How it Works
 
@@ -268,7 +302,7 @@ either.
 
 ## License
 
-Copyright © 2008-2011 Jeffrey Chu, Phil Hagelberg, Hugo Duncan, and
+Copyright © 2008-2012 Jeffrey Chu, Phil Hagelberg, Hugo Duncan, and
 contributors
 
 Licensed under the EPL. (See the file COPYING.)

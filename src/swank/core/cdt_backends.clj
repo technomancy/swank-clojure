@@ -1,6 +1,7 @@
 (ns swank.core.cdt-backends
   (:refer-clojure :exclude [next])
   (:require [cdt.ui :as cdt]
+            [cdt.reval]
             [swank.core.cdt-utils :as cutils]
             [swank.core :as core]
             [swank.util.concurrent.thread :as st]
@@ -136,9 +137,32 @@
          :thread (cdt/get-thread-from-id (:thread env))
          :frame 0}))
 
+(defn get-frame-locals [env]
+  (try
+    (let [thread (cdt/get-thread-from-id (:thread env))
+          frame-num 0
+          ;foo (doall (cdt.reval/gen-locals-and-closures thread frame-num))
+          local-names (cdt.reval/local-names thread frame-num)
+          locals (into {}
+                       (doall
+                        (map
+                         (fn [nm]
+                           [nm
+                            (cdt.reval/fixup-string-reference-impl
+                             (cdt.reval/reval-ret-str thread frame-num
+                                                      nm true))
+                            ])
+                         local-names)))]
+
+      ;; (println "**: " foo "\n")
+      locals)
+    (catch Throwable t
+      (.printStackTrace t #^java.io.PrintWriter *err*)
+      (println "CDT failed to get frame locals:" t))))
+
 (defslimefn sldb-cdt-debug [env]
   (binding [*debugger-env* (gen-debugger-env env)]
-    (core/sldb-debug nil nil core/*pending-continuations*)))
+    (core/sldb-debug (get-frame-locals env) nil core/*pending-continuations*)))
 
 (defslimefn sldb-line-bp [file line]
   (line-bp file line))
