@@ -3,7 +3,6 @@
   (:use [swank.core :only (with-emacs-package)]
         [swank.commands :onlny (defslimefn)])
   (:require [cljs.repl :as repl]
-            [cljs.repl.browser :as browser]
             [cljs.compiler :as comp])
   )
 
@@ -13,7 +12,6 @@
   "Register a new REPL environment for interactive-eval-with-target to dispatch to."
   [key env]
   (swap! cljs-targets assoc key env))
-
 
 (defn eval-in-cljs
   "Evaluate the given string in the provided ClojureScript repl environment."
@@ -38,6 +36,11 @@
       )))
 
 
-;; Note: you will need an Emacs customization that overrides
+;; Notes:
+;;
+;; You will need an Emacs customization that overrides
 ;; slime-interactive-eval tocall (swank:interactive-eval-with-target) instead of
 ;; (swank:interactive-eval), such as is provided in clojure-mode.el.
+;;
+;; Also, before you can eval to a target, you will need your VM to have a repl
+;; instance registered via 'register-repl' (e.g. browser repl).
