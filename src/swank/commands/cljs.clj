@@ -1,5 +1,5 @@
 (ns ^{:doc "Support for sending evaluation of forms into a ClojureScript repl."}
-  swank.cljsrepl
+  swank.commands.cljs
   (:use [swank.core :only (with-emacs-package)]
         [swank.commands :onlny (defslimefn)])
   (:require [cljs.repl :as repl]
@@ -7,23 +7,17 @@
             [cljs.compiler :as comp])
   )
 
-(def cljs-env "Global cljs environment for a repl." (atom nil))
+(def cljs-targets "A mapping of registered repl environments which can be used as targets." (atom {}))
 
-;; FIXME: this sucks, I wish I didn't need a thread. Need to expose better
-;; access to cljs repl over there.
-(defn- make-env
-  "Create a new ClojureScript browser repl and run it in a background thread."
-  []
-  (let [env (browser/repl-env), ;; FIXME: we should allow customization
-        thread (Thread. (fn [] (repl/repl env)))]
-    (.start thread)
-    env))
+(defn register-repl
+  "Register a new REPL environment for interactive-eval-with-target to dispatch to."
+  [key env]
+  (swap! cljs-targets assoc key env))
 
-(defn eval-in-cljs [form-string]
-  ;; Create a repl as global on demand, if not already started.
-  ;; FIXME: not sure if we want to do this automatically in the future.
-  (when-not @cljs-env (swap! cljs-env (fn [_] (make-env))))
 
+(defn eval-in-cljs
+  "Evaluate the given string in the provided ClojureScript repl environment."
+  [env form-string]
   (let [form (read-string form-string),
         ;; Note: the following is lifted from cljs.repl.browser; FIXME: we
         ;; should add support there to do this without a repl thread.
@@ -31,29 +25,19 @@
                  :locals {}
                  :ns (@comp/namespaces comp/*cljs-ns*)}]
 
-    #_(.println System/out form)
-
-    ;; FIXME: we need to report error when no browser is connected, send to
-    ;; thread, etc.
-    (repl/evaluate-form @cljs-env context "<swank-cljs-repl>" form)
+    (repl/evaluate-form env context "<swank-cljs-repl>" form)
     ))
 
-(defslimefn ^{:doc"Evaluate a Clojure form in a global ClojureScript environment."}
+(defslimefn ^{:doc "Evaluate a Clojure form in a ClojureScript environment."}
   interactive-eval-with-target [target form-string]
-  (condp = target
-    :cljs-repl (eval-in-cljs form-string)
-    ;; Note: eventually add support for other repls.
-    (:abort (throw (Exception. (format "Emacs eval abort - Invalid eval target '%s'" target)))))
-  )
+  (let [env (get @cljs-targets target)]
+    (if env
+      (eval-in-cljs env form-string)
+      (throw (Exception.
+              (format "Emacs eval abort; eval target '%s' not found" target)))
+      )))
 
 
-;;------------------------------------------------------------------------------
-;; Required emacs configuration:
-;;
-;; You will have to insert this advice in your .emacs in order to instruct
-;; slime to use an alternative target for evaluation.
-;;
-;;    (defadvice slime-interactive-eval (around slime-current-eval-target activate)
-;;      (if (string-match "\\.cljs$" (buffer-file-name))
-;;          (slime-eval-with-transcript `(swank:interactive-eval-with-target :cljs-repl ,string))
-;;        ad-do-it))
+;; Note: you will need an Emacs customization that overrides
+;; slime-interactive-eval tocall (swank:interactive-eval-with-target) instead of
+;; (swank:interactive-eval), such as is provided in clojure-mode.el.
