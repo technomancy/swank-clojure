@@ -16,15 +16,16 @@
 (defn eval-in-cljs
   "Evaluate the given string in the provided ClojureScript repl environment."
   [env form-string]
-  (let [form (read-string form-string),
-        ;; Note: the following is lifted from cljs.repl.browser; FIXME: we
-        ;; should add support there to do this without a repl thread.
-        context {:context :statement
-                 :locals {}
-                 :ns (@comp/namespaces comp/*cljs-ns*)}]
+  (binding [comp/*cljs-ns* comp/*cljs-ns*]
+            (let [form (read-string form-string),
+                  ;; Note: the following is lifted from cljs.repl.browser; FIXME: we
+                  ;; should add support there to do this without a repl thread.
+                  context {:context :statement
+                           :locals {}
+                           :ns (@comp/namespaces comp/*cljs-ns*)}]
 
-    (repl/evaluate-form env context "<swank-cljs-repl>" form)
-    ))
+              (repl/evaluate-form env context "<swank-cljs-repl>" form)
+              )))
 
 (defslimefn ^{:doc "Evaluate a Clojure form in a ClojureScript environment."}
   interactive-eval-with-target [target form-string]
