@@ -142,7 +142,9 @@ values."
          (map #(exception-str width %) (.getStackTrace #^Throwable t)))))
 
 (defmethod debugger-condition-for-emacs :default []
-  (list (or (.getMessage #^Throwable *current-exception*) "No message.")
+  (list (or (.getMessage #^Throwable *current-exception*)
+            (.toString #^Throwable *current-exception*)
+            "No message.")
         (str "  [Thrown " (class *current-exception*) "]")
         nil))
 
