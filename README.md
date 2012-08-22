@@ -4,6 +4,15 @@
 server that allows SLIME (the Superior Lisp Interaction Mode for
 Emacs) to connect to Clojure projects.
 
+## Deprecated
+
+This project is no longer under active development.
+
+New users are strongly encouraged to try out
+[nrepl.el](https://github.com/kingtim/nrepl.el) instead. If you need
+an advanced debugger, [Ritz](https://github.com/pallet/ritz) might be
+a better fit.
+
 ## Usage
 
 The simplest way is to just "jack in" from an existing project
@@ -16,8 +25,8 @@ using [Leiningen](http://github.com/technomancy/leiningen):
   `project.clj` or your user profile.
 * From an Emacs buffer inside a project, invoke `M-x clojure-jack-in`
 
-If you are still using Leiningen 1.x, you will need to do
-`lein plugin install swank-clojure 1.4.2` instead.
+If you are still using a version of Leiningen older than 1.7.0, you
+will need to do `lein plugin install swank-clojure 1.4.2` instead.
 
 That's all it takes; there are no extra install steps beyond
 `clojure-mode` on the Emacs side and the `swank-clojure` plugin on the
