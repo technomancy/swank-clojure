@@ -22,9 +22,9 @@ list, Alan Dipert and MeikelBrandmeyer."
   (deftest guess-compiler-exception-location-test
     (is (= '(:location (:file "a.clj") (:line 1) nil)
            (guess-compiler-exception-location
-            (clojure.lang.Compiler$CompilerException. "a.clj" 1 (Exception. "err"))))))
+                        (compiler-exception "a.clj" 1 (Exception. "err"))))))
 
   (deftest exception-location-test
     (is (= '(:location (:file "a.clj") (:line 1) nil)
            (exception-location
-            (clojure.lang.Compiler$CompilerException. "a.clj" 1 (Exception. "err")))))))
+            (compiler-exception "a.clj" 1 (Exception. "err")))))))
