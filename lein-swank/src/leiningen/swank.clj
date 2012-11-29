@@ -59,7 +59,7 @@
 (defn add-swank-dep [project]
   (if (some #(= 'swank-clojure (first %)) (:dependencies project))
     project
-    (update-in project [:dependencies] conj ['swank-clojure "1.4.2"])))
+    (update-in project [:dependencies] conj ['swank-clojure "1.4.3"])))
 
 (defn swank
   "Launch swank server for Emacs to connect. Optionally takes PORT and HOST."
