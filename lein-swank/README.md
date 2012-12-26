@@ -9,7 +9,7 @@ rather than `:dev-dependencies`. If you are using Leiningen 1.6 or
 earlier, continue adding the main `swank-clojure` entry into your
 `:dev-dependencies`.
 
-Add `[lein-swank "1.4.3"]` to `:plugins` in `project.clj`.
+Add `[lein-swank "1.4.5"]` to `:plugins` in `project.clj`.
 Then you should have access to the `swank` and `jack-in` tasks.
 
 ## License

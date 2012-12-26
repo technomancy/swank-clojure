@@ -21,7 +21,7 @@ using [Leiningen](http://github.com/technomancy/leiningen):
 * Install `clojure-mode` either from
   [Marmalade](http://marmalade-repo.org) or from
   [git](http://github.com/technomancy/clojure-mode).
-* Add `[lein-swank "1.4.4"]` to the `:plugins` section of either
+* Add `[lein-swank "1.4.5"]` to the `:plugins` section of either
   `project.clj` or your user profile.
 * From an Emacs buffer inside a project, invoke `M-x clojure-jack-in`
 
