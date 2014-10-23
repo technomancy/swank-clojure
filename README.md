@@ -139,7 +139,7 @@ Then add Marmalade as an archive source in your Emacs config:
 ```lisp
 (require 'package)
 (add-to-list 'package-archives
-             '("marmalade" . "http://marmalade-repo.org/packages/") t)
+             '("marmalade" . "https://marmalade-repo.org/packages/") t)
 (package-initialize)
 ```
 
